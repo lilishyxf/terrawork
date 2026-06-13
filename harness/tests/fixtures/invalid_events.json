@@ -1,0 +1,48 @@
+[
+  {
+    "_why": "自然语言谓词：verification.expected 缺 exit_code 且含未定义字段 note，machine_verifiable 强约束应拒绝（ADR-006）",
+    "event_id": 101,
+    "session_id": "s-bad",
+    "ts": "2026-06-13T11:00:00Z",
+    "agent": "guide",
+    "type": "guide_delegate",
+    "parent_event_id": null,
+    "payload": {
+      "assignee": "merchant#1",
+      "task_card": {
+        "task_id": "t-bad",
+        "objective": "随便做做",
+        "output_format": "差不多就行",
+        "allowed_tools": ["write"],
+        "boundaries": ["别乱来"],
+        "verification": [
+          { "type": "machine_verifiable", "command": "npm test", "expected": { "note": "看起来能用" } }
+        ]
+      }
+    }
+  },
+  {
+    "_why": "缺 parent_event_id：tool_done 必须携带 parent（预写配对/因果链），schema required 应拒绝",
+    "event_id": 102,
+    "session_id": "s-bad",
+    "ts": "2026-06-13T11:00:01Z",
+    "agent": "merchant#1",
+    "type": "tool_done",
+    "parent_event_id": null,
+    "payload": {
+      "tool": "write_file",
+      "status": "ok",
+      "hash": "655048e5024cbb18c51e8e8a634ad334497f43cb94f9c7a08a44a9ba4d23950a"
+    }
+  },
+  {
+    "_why": "未知 type：不在 13 种枚举内，应拒绝",
+    "event_id": 103,
+    "session_id": "s-bad",
+    "ts": "2026-06-13T11:00:02Z",
+    "agent": "merchant#1",
+    "type": "gossip",
+    "parent_event_id": null,
+    "payload": { "text": "闲聊" }
+  }
+]

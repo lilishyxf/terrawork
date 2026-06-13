@@ -1,0 +1,113 @@
+[
+  {
+    "event_id": 1,
+    "session_id": "s-login-demo",
+    "ts": "2026-06-13T10:00:00Z",
+    "agent": "user",
+    "type": "user_command",
+    "parent_event_id": null,
+    "payload": { "text": "做个登录" }
+  },
+  {
+    "event_id": 2,
+    "session_id": "s-login-demo",
+    "ts": "2026-06-13T10:00:05Z",
+    "agent": "guide",
+    "type": "guide_think",
+    "parent_event_id": 1,
+    "payload": { "text": "拆成 写测试 → 实现 → 验证 三步" }
+  },
+  {
+    "event_id": 3,
+    "session_id": "s-login-demo",
+    "ts": "2026-06-13T10:00:12Z",
+    "agent": "guide",
+    "type": "guide_delegate",
+    "parent_event_id": 2,
+    "payload": {
+      "assignee": "merchant#1",
+      "task_card": {
+        "task_id": "t-login-impl",
+        "objective": "实现邮箱+密码登录，让 auth 测试通过",
+        "output_format": "修改 auth 模块，导出 login(email, password)",
+        "allowed_tools": ["read", "write", "bash"],
+        "boundaries": ["只改 auth 模块"],
+        "verification": [
+          {
+            "type": "machine_verifiable",
+            "command": "npm test -- auth",
+            "expected": { "exit_code": 0 }
+          }
+        ]
+      }
+    }
+  },
+  {
+    "event_id": 4,
+    "session_id": "s-login-demo",
+    "ts": "2026-06-13T10:00:18Z",
+    "agent": "merchant#1",
+    "type": "npc_think",
+    "parent_event_id": 3,
+    "payload": { "text": "先读现有 auth 结构再动手", "task_id": "t-login-impl" }
+  },
+  {
+    "event_id": 5,
+    "session_id": "s-login-demo",
+    "ts": "2026-06-13T10:00:30Z",
+    "agent": "merchant#1",
+    "type": "tool_intent",
+    "parent_event_id": 3,
+    "payload": { "tool": "write_file", "params": { "file": "auth.ts", "content_len": 1280 }, "task_id": "t-login-impl" }
+  },
+  {
+    "event_id": 6,
+    "session_id": "s-login-demo",
+    "ts": "2026-06-13T10:00:31Z",
+    "agent": "merchant#1",
+    "type": "tool_done",
+    "parent_event_id": 5,
+    "payload": {
+      "tool": "write_file",
+      "status": "ok",
+      "file": "auth.ts",
+      "hash": "655048e5024cbb18c51e8e8a634ad334497f43cb94f9c7a08a44a9ba4d23950a"
+    }
+  },
+  {
+    "event_id": 7,
+    "session_id": "s-login-demo",
+    "ts": "2026-06-13T10:00:45Z",
+    "agent": "blaster#1",
+    "type": "verify_run",
+    "parent_event_id": 3,
+    "payload": { "task_id": "t-login-impl", "command": "npm test -- auth", "exit_code": 0, "passed": true }
+  },
+  {
+    "event_id": 8,
+    "session_id": "s-login-demo",
+    "ts": "2026-06-13T10:00:50Z",
+    "agent": "merchant#1",
+    "type": "review_request",
+    "parent_event_id": 3,
+    "payload": { "task_id": "t-login-impl", "reviewer": "tailor#1", "artifact": { "diff_ref": "wt-merchant-1@HEAD" } }
+  },
+  {
+    "event_id": 9,
+    "session_id": "s-login-demo",
+    "ts": "2026-06-13T10:01:05Z",
+    "agent": "tailor#1",
+    "type": "review_verdict",
+    "parent_event_id": 8,
+    "payload": { "task_id": "t-login-impl", "reviewer": "tailor#1", "verdict": "pass" }
+  },
+  {
+    "event_id": 10,
+    "session_id": "s-login-demo",
+    "ts": "2026-06-13T10:01:10Z",
+    "agent": "guide",
+    "type": "merge",
+    "parent_event_id": 3,
+    "payload": { "task_id": "t-login-impl", "source": "wt-merchant-1", "target": "main", "result": "success", "milestone": true }
+  }
+]

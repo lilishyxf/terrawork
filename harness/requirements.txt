@@ -1,0 +1,5 @@
+# tested on python 3.11.x, see README
+# TerraWorks harness 运行依赖
+# M1.1 Session 层：事件校验器（jsonschema 为主 + 启动期自检，见 session/schema.py）
+jsonschema>=4.18
+referencing>=0.30

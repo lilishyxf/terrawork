@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+
+# 虚拟环境（架构基线规定解释器：Python 3.11.x）
+.venv/
+
+# IDE / 编辑器
+.idea/
+.vscode/
+
+# Claude Code 本机配置（per-developer 权限允许表，不入库）
+.claude/settings.local.json
+
+# TerraWorks 运行数据（见 ARCHITECTURE 第 11 节：session.db 与 worktrees 不入库）
+data/*.db
+data/*.db-wal
+data/*.db-shm
+data/worktrees/
