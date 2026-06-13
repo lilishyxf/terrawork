@@ -1,0 +1,243 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://terraworks.local/contracts/events.schema.json",
+  "title": "TerraWorks Session Event",
+  "description": "Session 事件 schema（ARCHITECTURE 第 4 节）。Session 日志是唯一事实源：仅追加、永不 UPDATE/DELETE。每个改变世界的动作遵循预写规则（先 *_intent 后 *_done）。本 schema 约束单条事件的信封字段与 13 种事件类型各自的 payload 结构。注意：think 类事件（guide_think / npc_think）的可见性（对人全透明、对审查 NPC 物理隔离）由 assembleContext(role) 代码硬过滤强制，不在本 schema 内表达，schema 仅负责落盘结构。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["event_id", "session_id", "ts", "agent", "type", "payload"],
+  "properties": {
+    "event_id": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "自增主键，因果链与游标（last_event_id）的基准。"
+    },
+    "session_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "所属会话 ID。"
+    },
+    "ts": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO 8601 事件时间戳。"
+    },
+    "agent": {
+      "type": "string",
+      "minLength": 1,
+      "description": "事件发起者：'user'、'guide' 或某 NPC 实例 ID（如 'merchant#1'）。"
+    },
+    "type": {
+      "enum": [
+        "user_command",
+        "user_interact",
+        "guide_think",
+        "guide_delegate",
+        "npc_think",
+        "tool_intent",
+        "tool_done",
+        "review_request",
+        "review_verdict",
+        "verify_run",
+        "merge",
+        "hitl_request",
+        "hitl_response",
+        "error"
+      ],
+      "description": "13 种事件类型（v0.1 最小集）。"
+    },
+    "parent_event_id": {
+      "type": ["integer", "null"],
+      "minimum": 1,
+      "description": "因果链：指向触发本事件的父事件；根事件为 null。tool_done 必须经此指回其配对的 tool_intent。"
+    },
+    "payload": {
+      "type": "object",
+      "description": "类型相关载荷，结构由下方 allOf 按 type 条件约束。"
+    }
+  },
+  "allOf": [
+    { "if": { "properties": { "type": { "const": "user_command" } } },     "then": { "properties": { "payload": { "$ref": "#/$defs/p_user_command" } } } },
+    { "if": { "properties": { "type": { "const": "user_interact" } } },    "then": { "properties": { "payload": { "$ref": "#/$defs/p_user_interact" } } } },
+    { "if": { "properties": { "type": { "const": "guide_think" } } },      "then": { "properties": { "payload": { "$ref": "#/$defs/p_think" } } } },
+    { "if": { "properties": { "type": { "const": "guide_delegate" } } },   "then": { "properties": { "payload": { "$ref": "#/$defs/p_guide_delegate" } } } },
+    { "if": { "properties": { "type": { "const": "npc_think" } } },        "then": { "properties": { "payload": { "$ref": "#/$defs/p_think" } } } },
+    { "if": { "properties": { "type": { "const": "tool_intent" } } },      "then": { "properties": { "payload": { "$ref": "#/$defs/p_tool_intent" } } } },
+    { "if": { "properties": { "type": { "const": "tool_done" } } },        "then": { "properties": { "payload": { "$ref": "#/$defs/p_tool_done" }, "parent_event_id": { "type": "integer", "minimum": 1 } }, "required": ["parent_event_id"] } },
+    { "if": { "properties": { "type": { "const": "review_request" } } },   "then": { "properties": { "payload": { "$ref": "#/$defs/p_review_request" } } } },
+    { "if": { "properties": { "type": { "const": "review_verdict" } } },   "then": { "properties": { "payload": { "$ref": "#/$defs/p_review_verdict" } } } },
+    { "if": { "properties": { "type": { "const": "verify_run" } } },       "then": { "properties": { "payload": { "$ref": "#/$defs/p_verify_run" } } } },
+    { "if": { "properties": { "type": { "const": "merge" } } },            "then": { "properties": { "payload": { "$ref": "#/$defs/p_merge" } } } },
+    { "if": { "properties": { "type": { "const": "hitl_request" } } },     "then": { "properties": { "payload": { "$ref": "#/$defs/p_hitl_request" } } } },
+    { "if": { "properties": { "type": { "const": "hitl_response" } } },    "then": { "properties": { "payload": { "$ref": "#/$defs/p_hitl_response" }, "parent_event_id": { "type": "integer", "minimum": 1 } }, "required": ["parent_event_id"] } },
+    { "if": { "properties": { "type": { "const": "error" } } },            "then": { "properties": { "payload": { "$ref": "#/$defs/p_error" } } } }
+  ],
+  "$defs": {
+    "p_user_command": {
+      "title": "user_command — 玩家输入的任务/指令",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["text"],
+      "properties": {
+        "text": { "type": "string", "minLength": 1, "description": "玩家下达的（通常模糊的）指令原文。" }
+      }
+    },
+    "p_user_interact": {
+      "title": "user_interact — 玩家点击/对话某 NPC",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["target", "interaction"],
+      "properties": {
+        "target": { "type": "string", "minLength": 1, "description": "被交互的 NPC 实例 ID 或 'guide'。" },
+        "interaction": { "enum": ["click", "dialogue", "inspect", "intervene"], "description": "交互种类。" },
+        "message": { "type": "string", "description": "对话文本或干预指令（如适用）。" }
+      }
+    },
+    "p_think": {
+      "title": "guide_think / npc_think — 推理内容",
+      "description": "对人类全透明（悬停/详情面板），对审查 NPC 永不可见（由 assembleContext 物理隔离，ADR-002）。",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["text"],
+      "properties": {
+        "text": { "type": "string", "minLength": 1, "description": "推理全文。" },
+        "task_id": { "type": "string", "description": "可选：所属任务。" },
+        "depth": { "type": "integer", "minimum": 0, "description": "可选：think 递归深度。" }
+      }
+    },
+    "p_guide_delegate": {
+      "title": "guide_delegate — 派发任务卡",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["assignee", "task_card"],
+      "properties": {
+        "assignee": { "type": "string", "minLength": 1, "description": "接收任务的 NPC 实例 ID。" },
+        "task_card": {
+          "$ref": "https://terraworks.local/contracts/task_card.schema.json",
+          "description": "自包含任务卡（四要素 + 验证条件）。"
+        }
+      }
+    },
+    "p_tool_intent": {
+      "title": "tool_intent — 工具调用意图（预写，WAL 前置）",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["tool"],
+      "properties": {
+        "tool": { "type": "string", "minLength": 1, "description": "工具名，如 'write_file' / 'bash' / 'read'。" },
+        "params": { "type": "object", "description": "工具参数（如 {file:'auth.ts', content_len:1280}）。" },
+        "task_id": { "type": "string", "description": "可选：所属任务。" }
+      }
+    },
+    "p_tool_done": {
+      "title": "tool_done — 工具调用完成（预写，含结果 hash）",
+      "description": "必须经 parent_event_id 指回其配对的 tool_intent；重启时 intent 无配对 done → 比对文件实际 hash → 重做或补记。",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["tool", "status"],
+      "properties": {
+        "tool": { "type": "string", "minLength": 1, "description": "与配对 intent 一致的工具名。" },
+        "status": { "enum": ["ok", "error"], "description": "执行结果。" },
+        "hash": { "type": "string", "pattern": "^[a-f0-9]{64}$", "description": "结果/产物的 sha256（写文件类工具应提供，用于崩溃恢复比对）。" },
+        "file": { "type": "string", "description": "可选：受影响的文件路径。" },
+        "exit_code": { "type": "integer", "description": "可选：命令类工具的退出码。" },
+        "summary": { "type": "string", "description": "可选：结果摘要（非全量输出）。" }
+      }
+    },
+    "p_review_request": {
+      "title": "review_request — 送审",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["task_id", "reviewer", "artifact"],
+      "properties": {
+        "task_id": { "type": "string", "minLength": 1, "description": "被审任务 ID。" },
+        "reviewer": { "type": "string", "minLength": 1, "description": "审查 NPC 实例 ID（如裁缝）。" },
+        "artifact": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "送审事实（审查者只看事实，不看叙述）。",
+          "properties": {
+            "diff_ref": { "type": "string", "description": "diff 或提交引用。" },
+            "files": { "type": "array", "items": { "type": "string" }, "description": "涉及文件列表。" },
+            "worktree": { "type": "string", "description": "源 worktree 标识。" }
+          }
+        }
+      }
+    },
+    "p_review_verdict": {
+      "title": "review_verdict — 审查结论",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["task_id", "reviewer", "verdict"],
+      "properties": {
+        "task_id": { "type": "string", "minLength": 1 },
+        "reviewer": { "type": "string", "minLength": 1, "description": "出具结论的审查 NPC。" },
+        "verdict": { "enum": ["pass", "reject"], "description": "审查结论。" },
+        "notes": { "type": "string", "description": "reject 时的整改要点；pass 时可选。" }
+      }
+    },
+    "p_verify_run": {
+      "title": "verify_run — 验证条件执行记录",
+      "description": "爆破专家（verifier）只执行不判断，如实记录 command + exit_code + 输出摘要。",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["task_id", "command", "exit_code", "passed"],
+      "properties": {
+        "task_id": { "type": "string", "minLength": 1 },
+        "command": { "type": "string", "minLength": 1, "description": "实际执行的命令（来自 verification.schema 的 machine_verifiable.command）。" },
+        "exit_code": { "type": "integer", "description": "实际退出码。" },
+        "passed": { "type": "boolean", "description": "实际结果是否满足 expected（机器判定，非主观）。" },
+        "output_summary": { "type": "string", "description": "stdout/stderr 摘要（非全量）。" }
+      }
+    },
+    "p_merge": {
+      "title": "merge — Guide 仲裁合并",
+      "description": "跨 NPC 产物交换的唯一通道：git merge 走 Guide 仲裁。",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["task_id", "source", "target", "result"],
+      "properties": {
+        "task_id": { "type": "string", "minLength": 1 },
+        "source": { "type": "string", "minLength": 1, "description": "源 worktree/分支。" },
+        "target": { "type": "string", "minLength": 1, "description": "目标分支。" },
+        "result": { "enum": ["success", "conflict"], "description": "合并结果。" },
+        "commit": { "type": "string", "description": "成功时的提交标识。" },
+        "milestone": { "type": "boolean", "description": "可选：是否达成里程碑（View 层钟楼敲钟）。" }
+      }
+    },
+    "p_hitl_request": {
+      "title": "hitl_request — 请求人类介入（NPC 敲玻璃）",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["reason", "question"],
+      "properties": {
+        "task_id": { "type": "string", "description": "可选：触发的任务 ID。" },
+        "reason": { "type": "string", "minLength": 1, "description": "为何需要人类（如验证条件上抬为 hitl_escalation）。" },
+        "question": { "type": "string", "minLength": 1, "description": "给人类的明确问题/验收项。" }
+      }
+    },
+    "p_hitl_response": {
+      "title": "hitl_response — 人类的回应",
+      "description": "必须经 parent_event_id 指回其 hitl_request。",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["decision"],
+      "properties": {
+        "decision": { "enum": ["approve", "reject", "answer"], "description": "人类裁决。" },
+        "text": { "type": "string", "description": "回应/答复内容。" }
+      }
+    },
+    "p_error": {
+      "title": "error — 异常/卡死/循环检测",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "message"],
+      "properties": {
+        "kind": { "enum": ["exception", "stuck", "loop", "timeout"], "description": "异常种类（View 层工位冒烟 + 红色感叹号）。" },
+        "message": { "type": "string", "minLength": 1, "description": "异常描述。" },
+        "task_id": { "type": "string", "description": "可选：相关任务。" },
+        "agent_ref": { "type": "string", "description": "可选：出错的 NPC 实例。" }
+      }
+    }
+  }
+}

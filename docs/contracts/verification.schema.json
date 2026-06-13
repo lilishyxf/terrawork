@@ -1,0 +1,126 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://terraworks.local/contracts/verification.schema.json",
+  "title": "TerraWorks Verification Condition",
+  "description": "验证条件三层方案（ADR-004 / ARCHITECTURE 第 6 节）的形式约束。一个验证条件只能是两种形态之一：机器可执行（machine_verifiable）或上抬人工验收（hitl_escalation）。禁止自然语言判断、禁止编造假条件。验证 NPC（爆破专家）只执行不判断——信任问题转化为执行问题。",
+  "type": "object",
+  "oneOf": [
+    { "$ref": "#/$defs/machine_verifiable" },
+    { "$ref": "#/$defs/hitl_escalation" }
+  ],
+  "$defs": {
+    "machine_verifiable": {
+      "title": "第一层 — 机器可执行验证条件",
+      "description": "强制为可执行命令 + 结构化期望结果。expected 必须是结构化断言，禁止使用自然语言谓词（如 '看起来能用'、'登录应该正常'）。",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "command", "expected"],
+      "properties": {
+        "type": {
+          "const": "machine_verifiable"
+        },
+        "command": {
+          "type": "string",
+          "minLength": 1,
+          "description": "在 sandbox/worktree 中执行的命令，例如 'npm test -- auth' 或 'pytest tests/test_login.py'。"
+        },
+        "cwd": {
+          "type": "string",
+          "description": "可选：命令执行的工作目录（相对 worktree 根）。缺省为 worktree 根目录。"
+        },
+        "timeout_sec": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "可选：命令超时秒数；超时记为验证失败（error 事件 kind=timeout）。"
+        },
+        "expected": {
+          "title": "结构化期望结果",
+          "description": "至少约束 exit_code；可叠加输出/产物断言。所有字段均为机器可判定，不接受自由文本判断。",
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["exit_code"],
+          "properties": {
+            "exit_code": {
+              "type": "integer",
+              "description": "期望进程退出码，通常为 0。"
+            },
+            "stdout_contains": {
+              "type": "string",
+              "description": "可选：stdout 必须包含的子串（精确匹配）。"
+            },
+            "stdout_matches": {
+              "type": "string",
+              "description": "可选：stdout 必须匹配的正则表达式。"
+            },
+            "stderr_empty": {
+              "type": "boolean",
+              "description": "可选：是否要求 stderr 为空。"
+            },
+            "artifact": {
+              "type": "object",
+              "additionalProperties": false,
+              "description": "可选：对产物文件的断言。",
+              "required": ["path"],
+              "properties": {
+                "path": {
+                  "type": "string",
+                  "description": "相对 worktree 根的文件路径。"
+                },
+                "must_exist": {
+                  "type": "boolean",
+                  "default": true,
+                  "description": "文件是否必须存在。"
+                },
+                "sha256": {
+                  "type": "string",
+                  "pattern": "^[a-f0-9]{64}$",
+                  "description": "可选：产物内容的 sha256 期望值。"
+                }
+              }
+            }
+          }
+        },
+        "runner_role": {
+          "const": "verifier",
+          "description": "执行者固定为 verifier（爆破专家）角色——只执行、记录 exit_code 与输出摘要，不做语义判断。"
+        },
+        "test_provenance": {
+          "title": "第二层 — 测试与实现分离",
+          "description": "验证用测试不得由写代码的 NPC 编写。existing_repo_test=复用仓库既有测试；test_first_other_npc=由另一 NPC 先行编写（test-first）。implementer_authored 为禁止值，schema 不接受。",
+          "enum": ["existing_repo_test", "test_first_other_npc"]
+        },
+        "author_agent": {
+          "type": "string",
+          "description": "可选：编写该测试的 NPC 实例 ID。约束（由 context/verify 层强制）：必须不等于本任务的制作 NPC，以消灭自审闭环。"
+        }
+      }
+    },
+    "hitl_escalation": {
+      "title": "第三层 — 不可机器验证则上抬人工",
+      "description": "Guide 拆解后仍写不出 machine_verifiable 条件时唯一的合法出口（另一出口是继续拆解，不在本 schema 内表达）。必须给出无法机器验证的理由，禁止以此规避验证或编造假条件。对应运行时的 hitl_request 事件（NPC 走到屏幕前敲玻璃）。",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "reason", "acceptance_prompt"],
+      "properties": {
+        "type": {
+          "const": "hitl_escalation"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1,
+          "description": "为何此子任务无法被表达为 machine_verifiable 条件（例如：纯视觉/主观体验、缺少可执行判据）。"
+        },
+        "acceptance_prompt": {
+          "type": "string",
+          "minLength": 1,
+          "description": "给人类验收者的明确问题/检查项，使其能据此做 pass/reject 判断。"
+        },
+        "decomposition_attempted": {
+          "type": "boolean",
+          "default": true,
+          "description": "声明 Guide 已尝试继续拆解但仍无法机器验证，方记录于此（防止跳过第三层兜底前提）。"
+        }
+      }
+    }
+  }
+}

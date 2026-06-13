@@ -1,0 +1,92 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://terraworks.local/contracts/task_card.schema.json",
+  "title": "TerraWorks Task Card",
+  "description": "任务卡 schema（铁律②）。编排者（向导/Guide）只管分解、委派、验收——任务卡强制四要素：目标(objective)、输出格式(output_format)、工具白名单(allowed_tools)、边界(boundaries)，外加每步可验证的验证条件(verification，铁律⑧)。任务卡随 guide_delegate 事件下发，且自包含——崩溃重启后新 LLM 调用可仅凭任务卡 + 相关历史事件重建工作 context。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "task_id",
+    "objective",
+    "output_format",
+    "allowed_tools",
+    "boundaries",
+    "verification"
+  ],
+  "properties": {
+    "task_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "任务唯一 ID。"
+    },
+    "parent_task_id": {
+      "type": ["string", "null"],
+      "description": "分解树中的父任务 ID；顶层任务为 null。"
+    },
+    "assignee_role": {
+      "enum": ["builder", "reviewer", "verifier", "orchestrator"],
+      "description": "承接该任务的角色类型（对应 roles/ 下角色文件的 role 字段）。"
+    },
+    "objective": {
+      "type": "string",
+      "minLength": 1,
+      "description": "四要素之一 — 目标：要达成什么。陈述结果，不规定实现步骤（铁律⑥：教原则不教步骤）。"
+    },
+    "output_format": {
+      "type": "string",
+      "minLength": 1,
+      "description": "四要素之一 — 输出格式：交付物的形态与约定（如 '修改后的 src/auth.ts，导出 login(email,password)'、'一份 diff'、'通过指定测试'）。"
+    },
+    "allowed_tools": {
+      "type": "array",
+      "description": "四要素之一 — 工具白名单：本任务允许调用的工具/连接器，超出白名单的工具调用应被拒绝。空数组表示纯推理任务。",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "uniqueItems": true
+    },
+    "boundaries": {
+      "type": "array",
+      "description": "四要素之一 — 边界：明确不可逾越的约束（如 '只改 auth 模块，勿动 db 层'、'不得新增依赖'）。至少一条。",
+      "minItems": 1,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "verification": {
+      "type": "array",
+      "description": "每步可验证（铁律⑧）：至少一个验证条件。每个条件要么 machine_verifiable，要么 hitl_escalation；禁止编造假条件。结构由 verification.schema.json 强约束。",
+      "minItems": 1,
+      "items": {
+        "$ref": "https://terraworks.local/contracts/verification.schema.json"
+      }
+    },
+    "complexity": {
+      "enum": ["simple", "complex"],
+      "description": "Guide 评估的复杂度。仅 complex 任务才在指令中注入 think 协议（铁律⑤）。"
+    },
+    "think_required": {
+      "type": "boolean",
+      "description": "是否强制 think 暂停。应与 complexity=complex 一致；simple 任务不注入 think。"
+    },
+    "max_think_depth": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "可选：think 递归深度上限，缺省取角色文件的 max_think_depth。"
+    },
+    "depends_on": {
+      "type": "array",
+      "description": "可选：前置依赖的 task_id 列表（如 test-first 中本实现任务依赖测试任务）。",
+      "items": { "type": "string", "minLength": 1 },
+      "uniqueItems": true
+    },
+    "context_refs": {
+      "type": "array",
+      "description": "可选：与本任务强相关、应全量/摘要注入的历史 event_id（分层注入 L1/L2，第 8 节）。其余历史不注入，由 NPC 通过 query_session 自查（L3）。",
+      "items": { "type": "integer", "minimum": 1 },
+      "uniqueItems": true
+    }
+  }
+}
