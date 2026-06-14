@@ -7,6 +7,7 @@ M1.2b：用真实 LLM（DeepSeek/GPT/Claude 三家，ADR-009），产出 = guide
 verification 条件用 machine_verifiable | hitl_escalation。
 """
 import json
+import os
 from pathlib import Path
 
 import pytest
@@ -109,14 +110,6 @@ def test_reference_output_passes_all_invariants():
     check_inv_6_granularity(events)
 
 
-# ---- M1.2b 测试占位：真实 LLM 接入后启用 ----
-
-@pytest.mark.skip(reason="M1.2b — requires LLM provider keys; enable when real Guide is wired")
-def test_real_guide_satisfies_invariants_on_three_providers():
-    """M1.2b：三家 provider 各跑一次，全部 invariant 都过才算通过（ADR-009）。"""
-    pass
-
-
 def test_guide_step_with_mock_llm_satisfies_invariants():
     """M1.2a-3 验收信号:用 mock LLM 跑真实 guide_step,产出满足 INV-1~6。
 
@@ -142,6 +135,77 @@ def test_guide_step_with_mock_llm_satisfies_invariants():
     )
 
     # 跑 INV-1~6(同 reference 那套校验函数)
+    trigger_id = trigger["event_id"]
+    check_inv_1_think_precedes_delegate(events)
+    check_inv_2_at_least_one_delegate(events)
+    check_inv_3_parent_chain(events, trigger_id)
+    check_inv_4_all_schemas_pass(events)
+    check_inv_5_verification_constrained(events)
+    check_inv_6_granularity(events)
+
+
+# ---- M1.2b 验收信号：真实 LLM provider（各自 KEY 门控） ----
+
+@pytest.mark.parametrize("provider_model", [
+    pytest.param(
+        "deepseek/deepseek-chat",
+        marks=pytest.mark.skipif(
+            not os.getenv("DEEPSEEK_API_KEY"),
+            reason="DEEPSEEK_API_KEY not set in environment / .env"
+        ),
+        id="deepseek",
+    ),
+    pytest.param(
+        "openai/gpt-4o",
+        marks=pytest.mark.skipif(
+            not os.getenv("OPENAI_API_KEY"),
+            reason="OPENAI_API_KEY not set in environment / .env"
+        ),
+        id="openai-gpt4o",
+    ),
+    pytest.param(
+        "anthropic/claude-sonnet-4-6",
+        marks=pytest.mark.skipif(
+            not os.getenv("ANTHROPIC_API_KEY"),
+            reason="ANTHROPIC_API_KEY not set in environment / .env"
+        ),
+        id="anthropic-sonnet-4-6",
+    ),
+])
+def test_real_guide_satisfies_invariants_per_provider(provider_model, monkeypatch):
+    """M1.2b 验收信号:在配置了 key 的真实 LLM provider 上跑 guide_step,
+    验证 INV-1~6 都成立。
+
+    跑法:
+      - 默认 `pytest harness/tests/`: 每家 provider 一个 case,有 key 的跑、没 key 的 skip
+      - 排除真实 LLM 测试: `pytest harness/tests/ -k "not real_guide"`
+      - 只跑某一家:        `pytest harness/tests/ -k "real_guide and deepseek"`
+    """
+    from harness.guide import guide_step
+
+    # 切到 real LLM client(monkeypatch 测试结束自动还原)
+    monkeypatch.setenv("TERRA_LLM_MODE", "real")
+
+    fx = load_fixture("m12_login_command.json")
+    trigger = fx["trigger"]
+    prior = fx["prior_context"]
+
+    events = guide_step(
+        session_events=prior + [trigger],
+        trigger_event=trigger,
+        model=provider_model,  # 显式指定,覆盖 roles/guide.md 的默认
+    )
+
+    # 真 LLM 可能触发 hitl 兜底——明确报告,而非沉默通过
+    if events[0]["type"] == "hitl_request":
+        p = events[0]["payload"]
+        pytest.fail(
+            f"Provider {provider_model} 重试 3 次仍未通过 schema 校验。\n"
+            f"  reason: {p.get('reason')}\n"
+            f"  question: {p.get('question')}"
+        )
+
+    # 跑 INV-1~6(复用既有校验函数)
     trigger_id = trigger["event_id"]
     check_inv_1_think_precedes_delegate(events)
     check_inv_2_at_least_one_delegate(events)
