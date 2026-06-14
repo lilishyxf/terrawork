@@ -115,3 +115,37 @@ def test_reference_output_passes_all_invariants():
 def test_real_guide_satisfies_invariants_on_three_providers():
     """M1.2b：三家 provider 各跑一次，全部 invariant 都过才算通过（ADR-009）。"""
     pass
+
+
+def test_guide_step_with_mock_llm_satisfies_invariants():
+    """M1.2a-3 验收信号:用 mock LLM 跑真实 guide_step,产出满足 INV-1~6。
+
+    证明 Guide 代码骨架、解析层、schema 校验门、重试循环全部到位,
+    只差把 mock 换成真 LLM(M1.2b)。
+    """
+    from harness.guide import guide_step
+
+    fx = load_fixture("m12_login_command.json")
+    trigger = fx["trigger"]
+    prior = fx["prior_context"]
+
+    # 默认 mock(TERRA_LLM_MODE 未设)
+    events = guide_step(
+        session_events=prior + [trigger],
+        trigger_event=trigger,
+    )
+
+    # mock happy path 不应触发 hitl_request 兜底
+    assert events[0]["type"] != "hitl_request", (
+        f"Mock happy path 触发了 hitl 兜底,说明重试用尽。"
+        f"last_error={events[0]['payload'].get('last_error')}"
+    )
+
+    # 跑 INV-1~6(同 reference 那套校验函数)
+    trigger_id = trigger["event_id"]
+    check_inv_1_think_precedes_delegate(events)
+    check_inv_2_at_least_one_delegate(events)
+    check_inv_3_parent_chain(events, trigger_id)
+    check_inv_4_all_schemas_pass(events)
+    check_inv_5_verification_constrained(events)
+    check_inv_6_granularity(events)
