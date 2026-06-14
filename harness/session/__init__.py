@@ -5,12 +5,19 @@
     validate_event     —— events.schema.json 校验门
     SchemaError / CausalityError / AppendOnlyError —— 拒绝写入的异常类型
 """
-from .schema import SchemaError, validate_event
+from .schema import (
+    SchemaError,
+    validate_event,
+    validate_task_card,
+    validate_verification,
+)
 from .store import AppendOnlyError, CausalityError, SessionStore
 
 __all__ = [
     "SessionStore",
     "validate_event",
+    "validate_task_card",
+    "validate_verification",
     "SchemaError",
     "CausalityError",
     "AppendOnlyError",

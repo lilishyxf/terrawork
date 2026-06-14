@@ -14,6 +14,9 @@ __pycache__/
 # Claude Code 本机配置（per-developer 权限允许表，不入库）
 .claude/settings.local.json
 
+# LLM provider API key（ADR-009，禁止入库）
+.env
+
 # TerraWorks 运行数据（见 ARCHITECTURE 第 11 节：session.db 与 worktrees 不入库）
 # 忽略所有 db，但 data/fixtures/ 下的版本化 fixture 除外
 *.db

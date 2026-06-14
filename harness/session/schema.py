@@ -66,15 +66,44 @@ def _event_validator() -> "Draft202012Validator":
     return Draft202012Validator(events_doc, registry=_registry())
 
 
-def validate_event(event: dict) -> None:
-    """按 events.schema.json 校验单条完整事件。
+TASK_CARD_SCHEMA_ID = "https://terraworks.local/contracts/task_card.schema.json"
+VERIFICATION_SCHEMA_ID = "https://terraworks.local/contracts/verification.schema.json"
 
-    通过则静默返回；否则抛 :class:`SchemaError`，消息含全部字段级错误。
-    """
-    errors = sorted(_event_validator().iter_errors(event), key=lambda e: list(e.path))
+
+@lru_cache(maxsize=None)
+def _validator_for(schema_id: str) -> "Draft202012Validator":
+    """构造（并缓存）某契约 schema 的校验器，复用同一 Registry 解析跨文件 $ref。"""
+    doc = json.loads((CONTRACTS_DIR / schema_id.rsplit("/", 1)[-1]).read_text(encoding="utf-8"))
+    Draft202012Validator.check_schema(doc)
+    return Draft202012Validator(doc, registry=_registry())
+
+
+def _raise_on_errors(validator: "Draft202012Validator", instance: dict) -> None:
+    errors = sorted(validator.iter_errors(instance), key=lambda e: list(e.path))
     if errors:
         detail = "; ".join(
             f"{'/'.join(map(str, e.absolute_path)) or '<root>'}: {e.message}"
             for e in errors
         )
         raise SchemaError(detail)
+
+
+def validate_event(event: dict) -> None:
+    """按 events.schema.json 校验单条完整事件。
+
+    通过则静默返回；否则抛 :class:`SchemaError`，消息含全部字段级错误。
+    """
+    _raise_on_errors(_event_validator(), event)
+
+
+def validate_task_card(task_card: dict) -> None:
+    """按 task_card.schema.json 校验一张任务卡（含其内嵌 verification 数组）。
+
+    复用 M1.1 的 Registry，跨文件 $ref（→ verification.schema.json）不断。
+    """
+    _raise_on_errors(_validator_for(TASK_CARD_SCHEMA_ID), task_card)
+
+
+def validate_verification(verification: dict) -> None:
+    """按 verification.schema.json 校验单个验证条件（machine_verifiable | hitl_escalation）。"""
+    _raise_on_errors(_validator_for(VERIFICATION_SCHEMA_ID), verification)

@@ -109,9 +109,9 @@
       "title": "guide_delegate — 派发任务卡",
       "type": "object",
       "additionalProperties": false,
-      "required": ["assignee", "task_card"],
+      "required": ["task_card"],
       "properties": {
-        "assignee": { "type": "string", "minLength": 1, "description": "接收任务的 NPC 实例 ID。" },
+        "assignee": { "type": "string", "minLength": 1, "description": "（可选，ADR-010）接收任务的 NPC 实例 ID。M1.2 分解期不填，M1.3 派发期由新增事件记录。" },
         "task_card": {
           "$ref": "https://terraworks.local/contracts/task_card.schema.json",
           "description": "自包含任务卡（四要素 + 验证条件）。"

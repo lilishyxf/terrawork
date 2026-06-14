@@ -1,0 +1,185 @@
+{
+  "id": "m12_login_command",
+  "milestone": "M1.2",
+  "description": "Guide 分解委派契约 — 模糊指令 '做个登录'。验证 Guide 在面对单一中等复杂度自然语言任务时，产出的事件链是否满足 M1.2 的全部不变量。字段命名对齐 M0 ground truth（task_card.schema.json / verification.schema.json）；guide_delegate 不含 assignee（ADR-010 放宽为可选，实例 ID 留 M1.3 派发期）。reference_output 仅作人读参考，不参与测试匹配。",
+  "created": "2026-06-14",
+
+  "trigger": {
+    "event_id": 1,
+    "session_id": "m12-fixture-login",
+    "ts": "2026-06-14T10:00:00Z",
+    "agent": "user",
+    "type": "user_command",
+    "parent_event_id": null,
+    "payload": {
+      "text": "做个登录"
+    }
+  },
+
+  "prior_context": [],
+
+  "invariants": [
+    {
+      "id": "INV-1",
+      "name": "guide_think_precedes_delegate",
+      "must": true,
+      "description": "至少产出 1 个 guide_think，且第一个 guide_think 的 event_id 早于所有 guide_delegate（铁律⑤：先思考再决策）"
+    },
+    {
+      "id": "INV-2",
+      "name": "at_least_one_delegate",
+      "must": true,
+      "description": "至少产出 1 个 guide_delegate（Guide 必须做出分解，不允许只 think 不动手）"
+    },
+    {
+      "id": "INV-3",
+      "name": "parent_event_id_chained",
+      "must": true,
+      "description": "所有产出事件 parent_event_id 非空且为正整数（ADR-007），链回 trigger 或同组内先前事件，且 parent_event_id < 自身 event_id（指针向后、防环，与 store 层 CausalityError 守同一不变量）"
+    },
+    {
+      "id": "INV-4",
+      "name": "all_schemas_pass",
+      "must": true,
+      "description": "所有产出事件通过 events.schema.json；每张 task_card 通过 task_card.schema.json；task_card.verification 数组内每个条件通过 verification.schema.json"
+    },
+    {
+      "id": "INV-5",
+      "name": "verification_type_constrained",
+      "must": true,
+      "description": "每张 task_card 的 verification 数组内每个条件，类型为 machine_verifiable 或 hitl_escalation；前者必须含结构化 expected.exit_code，后者必须含 reason 与 acceptance_prompt 字段（说明为何不可自动验证 + 人工验收提示）"
+    },
+    {
+      "id": "INV-6",
+      "name": "decomposition_granularity",
+      "must": true,
+      "description": "任务卡总数 ∈ [1, 6]；单张 task_card 的 objective 字段长度 ∈ [10, 500] 字符（防爆炸式拆解 + 防敷衍式拆解）"
+    },
+    {
+      "id": "INV-7",
+      "name": "provider_agnostic",
+      "must": true,
+      "description": "在下列三家 provider 上跑，INV-1 ~ INV-6 都成立。M1.2a（mock LLM）阶段不执行，仅 M1.2b（真实 LLM 接入）生效（ADR-009）",
+      "test_providers": [
+        "deepseek/deepseek-chat",
+        "openai/gpt-4o",
+        "anthropic/claude-sonnet-4-6"
+      ]
+    }
+  ],
+
+  "reference_output": [
+    {
+      "event_id": 2,
+      "session_id": "m12-fixture-login",
+      "ts": "2026-06-14T10:00:05Z",
+      "agent": "guide",
+      "type": "guide_think",
+      "parent_event_id": 1,
+      "payload": {
+        "text": "用户'做个登录'是中等复杂度任务，涉及 API 端点 + 密码哈希 + JWT + 测试覆盖。按 ADR-004 第二层（测试与实现分离），分三步：① 由一个 builder 先写测试，定义行为契约；② 另一个 builder 按测试实现 API；③ verifier 执行测试套件并产出 verify_run 事件。"
+      }
+    },
+    {
+      "event_id": 3,
+      "session_id": "m12-fixture-login",
+      "ts": "2026-06-14T10:00:06Z",
+      "agent": "guide",
+      "type": "guide_delegate",
+      "parent_event_id": 2,
+      "payload": {
+        "task_card": {
+          "task_id": "t-login-tests",
+          "assignee_role": "builder",
+          "objective": "为 /login API 端点编写单元测试，覆盖三种场景：成功登录 / 密码错误 / 用户不存在。测试必须能在实现缺失时全部 failing，实现到位后全部 passing。",
+          "output_format": "Jest tests in __tests__/login.test.ts",
+          "allowed_tools": ["read", "write"],
+          "boundaries": [
+            "仅写测试，不写任何实现代码",
+            "数据库层用 mock，不依赖真实数据库",
+            "测试名清晰描述行为，如 'rejects login with wrong password'"
+          ],
+          "verification": [
+            {
+              "type": "machine_verifiable",
+              "command": "npm test -- login.test.ts --listOnly",
+              "expected": {
+                "exit_code": 0,
+                "stdout_contains": "login.test.ts"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "event_id": 4,
+      "session_id": "m12-fixture-login",
+      "ts": "2026-06-14T10:00:07Z",
+      "agent": "guide",
+      "type": "guide_delegate",
+      "parent_event_id": 2,
+      "payload": {
+        "task_card": {
+          "task_id": "t-login-impl",
+          "assignee_role": "builder",
+          "objective": "实现 /login API 端点，使 t-login-tests 中的全部测试通过。密码用 bcrypt 哈希后比对，登录成功返回签名的 JWT。",
+          "output_format": "TypeScript code in src/api/login.ts",
+          "allowed_tools": ["read", "write", "bash"],
+          "boundaries": [
+            "密码永不明文存储或传输，始终走 bcrypt",
+            "JWT secret 从环境变量 JWT_SECRET 读取，禁止硬编码",
+            "错误信息统一为'用户名或密码错'，不暴露用户名是否存在"
+          ],
+          "verification": [
+            {
+              "type": "machine_verifiable",
+              "command": "npm test -- login.test.ts",
+              "expected": {
+                "exit_code": 0
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "event_id": 5,
+      "session_id": "m12-fixture-login",
+      "ts": "2026-06-14T10:00:08Z",
+      "agent": "guide",
+      "type": "guide_delegate",
+      "parent_event_id": 2,
+      "payload": {
+        "task_card": {
+          "task_id": "t-login-verify",
+          "assignee_role": "verifier",
+          "objective": "执行 login 模块的完整测试套件，产出 verify_run 事件记录 exit_code 与输出摘要。",
+          "output_format": "verify_run event with exit_code and stdout digest",
+          "allowed_tools": ["bash"],
+          "boundaries": [
+            "只执行不判断，字段比对由 verification schema 完成",
+            "不修改任何源码或测试文件",
+            "若测试 fail，直接落 verify_run 事件，由 Guide 决定是否退回返工"
+          ],
+          "verification": [
+            {
+              "type": "machine_verifiable",
+              "command": "npm test -- login.test.ts --coverage",
+              "expected": {
+                "exit_code": 0,
+                "stdout_contains": "Tests:"
+              }
+            }
+          ]
+        }
+      }
+    }
+  ],
+
+  "notes": [
+    "reference_output 中 t-login-tests 与 t-login-impl 都标 assignee_role: builder，实际派发时由 Guide 分配不同 NPC 实例（满足 ADR-004 第二层 — 测试与实现不同人完成）。task_card 自身不绑定具体 NPC name，只声明 role。",
+    "guide_delegate.payload 不含 assignee（ADR-010：分解期只产卡、不绑实例）；NPC 实例 ID 由 M1.3 派发期通过新增事件记录，Session 仅追加、不回填既有事件。",
+    "INV-7 在 M1.2a 阶段（mock LLM）不执行，仅在 M1.2b 阶段（真实 LLM 接入）生效。"
+  ]
+}
