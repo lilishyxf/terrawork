@@ -1,0 +1,230 @@
+{
+  "id": "m13_merchant_login_impl",
+  "milestone": "M1.3",
+  "description": "Sandbox + 单 NPC 执行契约 — 商人(merchant#1)接到登录实现任务卡,在 worktree 内调 read/write/bash 完成,产出符合 WAL 配对(parent_event_id 链)的 tool_intent/tool_done 事件链,以 review_request 结束。M1.3 测试绕过 LLM 真实迭代调用,直接给 executor 喂预定 tool 调用序列验证骨架。",
+  "created": "2026-06-14",
+
+  "prior_context": [
+    {
+      "event_id": 1,
+      "session_id": "m13-fixture-impl",
+      "ts": "2026-06-14T10:00:00Z",
+      "agent": "user",
+      "type": "user_command",
+      "parent_event_id": null,
+      "payload": {"text": "做个登录"}
+    },
+    {
+      "event_id": 2,
+      "session_id": "m13-fixture-impl",
+      "ts": "2026-06-14T10:00:05Z",
+      "agent": "guide",
+      "type": "guide_think",
+      "parent_event_id": 1,
+      "payload": {"text": "拆三步:写测试 / 实现 / 验证"}
+    },
+    {
+      "event_id": 3,
+      "session_id": "m13-fixture-impl",
+      "ts": "2026-06-14T10:00:06Z",
+      "agent": "guide",
+      "type": "guide_delegate",
+      "parent_event_id": 2,
+      "payload": {
+        "task_card": {
+          "task_id": "t-login-impl",
+          "assignee_role": "builder",
+          "objective": "实现 /login API 端点,让既有测试通过。密码用 bcrypt,登录成功返回 JWT。",
+          "output_format": "TypeScript code in src/api/login.ts",
+          "allowed_tools": ["read", "write", "bash"],
+          "boundaries": [
+            "密码永不明文存储",
+            "JWT secret 从环境变量读",
+            "错误信息不暴露用户名是否存在"
+          ],
+          "verification": [
+            {
+              "type": "machine_verifiable",
+              "command": "npm test -- login.test.ts",
+              "expected": {"exit_code": 0}
+            }
+          ]
+        }
+      }
+    }
+  ],
+
+  "trigger": {
+    "event_id": 4,
+    "session_id": "m13-fixture-impl",
+    "ts": "2026-06-14T10:00:10Z",
+    "agent": "guide",
+    "type": "guide_assign",
+    "parent_event_id": 3,
+    "payload": {
+      "task_card_event_id": 3,
+      "assignee_instance": "merchant#1"
+    }
+  },
+
+  "invariants": [
+    {
+      "id": "INV-1",
+      "name": "worktree_created",
+      "must": true,
+      "scope": "runtime",
+      "description": "执行前 data/worktrees/merchant-1/ 已存在并为合法 git worktree;tool_intent 的 path/cmd 操作均限定在此目录内,不允许越界写主仓库"
+    },
+    {
+      "id": "INV-2",
+      "name": "tool_events_paired_via_parent",
+      "must": true,
+      "scope": "data",
+      "description": "每个 tool_intent 必须有恰好一个 tool_done 与之配对:同 agent、tool_done.parent_event_id == tool_intent.event_id、tool_done.payload.tool == tool_intent.payload.tool。配对通过 parent_event_id 链实现(M0 schema 选择,不引入 tool_call_id)"
+    },
+    {
+      "id": "INV-3",
+      "name": "parent_chain_strictly_backward",
+      "must": true,
+      "scope": "data",
+      "description": "所有产出事件 parent_event_id 为正整数(ADR-007),链回 trigger(guide_assign) 或同 NPC 实例内的先前事件;每个事件的 parent < 自身 event_id(指针严格向后,防环)"
+    },
+    {
+      "id": "INV-4",
+      "name": "agent_field_consistent_with_assignee_instance",
+      "must": true,
+      "scope": "data",
+      "description": "所有 tool_intent / tool_done / review_request 事件的 agent 字段必须 == trigger.payload.assignee_instance(\"merchant#1\");不允许冒充其他实例或回写 guide/user"
+    },
+    {
+      "id": "INV-5",
+      "name": "tool_within_whitelist",
+      "must": true,
+      "scope": "data",
+      "description": "tool_intent.payload.tool 必须在 prior_context 中对应 task_card.allowed_tools 列表内(本 fixture:read/write/bash);白名单外工具调用应在 executor 层拦下,不应出现在事件流"
+    },
+    {
+      "id": "INV-6",
+      "name": "all_schemas_pass",
+      "must": true,
+      "scope": "data",
+      "description": "所有产出事件通过 events.schema.json;tool_done 必含 status ∈ {ok, error}(M0 ground truth p_tool_done required);review_request 必含 task_id + reviewer + artifact 三字段"
+    },
+    {
+      "id": "INV-7",
+      "name": "completion_signal",
+      "must": true,
+      "scope": "data",
+      "description": "执行结束恰好 1 个 review_request 事件,parent_event_id 链回 trigger(guide_assign.event_id),payload.task_id == 任务卡 task_id(本 fixture: t-login-impl)"
+    }
+  ],
+
+  "reference_output": [
+    {
+      "event_id": 5,
+      "session_id": "m13-fixture-impl",
+      "ts": "2026-06-14T10:00:12Z",
+      "agent": "merchant#1",
+      "type": "tool_intent",
+      "parent_event_id": 4,
+      "payload": {
+        "tool": "read",
+        "params": {"path": "__tests__/login.test.ts"},
+        "task_id": "t-login-impl"
+      }
+    },
+    {
+      "event_id": 6,
+      "session_id": "m13-fixture-impl",
+      "ts": "2026-06-14T10:00:12Z",
+      "agent": "merchant#1",
+      "type": "tool_done",
+      "parent_event_id": 5,
+      "payload": {
+        "tool": "read",
+        "status": "ok",
+        "file": "__tests__/login.test.ts",
+        "hash": "a3f2c1e8b4d7a9c6f1e2b3d4a5c6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2c3d4",
+        "summary": "describe('login', ...) ... 3 test cases"
+      }
+    },
+    {
+      "event_id": 7,
+      "session_id": "m13-fixture-impl",
+      "ts": "2026-06-14T10:00:15Z",
+      "agent": "merchant#1",
+      "type": "tool_intent",
+      "parent_event_id": 6,
+      "payload": {
+        "tool": "write",
+        "params": {"path": "src/api/login.ts"},
+        "task_id": "t-login-impl"
+      }
+    },
+    {
+      "event_id": 8,
+      "session_id": "m13-fixture-impl",
+      "ts": "2026-06-14T10:00:15Z",
+      "agent": "merchant#1",
+      "type": "tool_done",
+      "parent_event_id": 7,
+      "payload": {
+        "tool": "write",
+        "status": "ok",
+        "file": "src/api/login.ts",
+        "hash": "b4e3d2c5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2c3"
+      }
+    },
+    {
+      "event_id": 9,
+      "session_id": "m13-fixture-impl",
+      "ts": "2026-06-14T10:00:18Z",
+      "agent": "merchant#1",
+      "type": "tool_intent",
+      "parent_event_id": 8,
+      "payload": {
+        "tool": "bash",
+        "params": {"cmd": "npm test -- login.test.ts"},
+        "task_id": "t-login-impl"
+      }
+    },
+    {
+      "event_id": 10,
+      "session_id": "m13-fixture-impl",
+      "ts": "2026-06-14T10:00:20Z",
+      "agent": "merchant#1",
+      "type": "tool_done",
+      "parent_event_id": 9,
+      "payload": {
+        "tool": "bash",
+        "status": "ok",
+        "exit_code": 0,
+        "summary": "Tests: 3 passed, 3 total"
+      }
+    },
+    {
+      "event_id": 11,
+      "session_id": "m13-fixture-impl",
+      "ts": "2026-06-14T10:00:21Z",
+      "agent": "merchant#1",
+      "type": "review_request",
+      "parent_event_id": 4,
+      "payload": {
+        "task_id": "t-login-impl",
+        "reviewer": "tailor",
+        "artifact": {
+          "files": ["src/api/login.ts"],
+          "worktree": "data/worktrees/merchant-1"
+        }
+      }
+    }
+  ],
+
+  "notes": [
+    "trigger 是 guide_assign(M1.3 新引入,ADR-011),不是 user_command/guide_delegate—— M1.3 接续 M1.2 的产物执行,prior_context 已包含 Guide 的分解结果",
+    "agent 字段格式 'merchant#1' 与 guide_assign.payload.assignee_instance 一致——M1.3 引入实例 ID 概念后,事件 agent 字段记录的是 NPC 实例 ID 而非 role 名(events.schema.json 的 agent 字段无 pattern,允许此格式)",
+    "WAL 配对通过 parent_event_id 链实现(tool_done.parent == tool_intent.event_id),不引入 tool_call_id 字段。M0 schema 设计选择",
+    "review_request 的 reviewer='tailor'——M1.3 阶段没有真实 tailor 接续,事件仅作合规落盘;M1.4 验证条件执行器或 M2 多 NPC 时由 Guide 决定如何接续此 review_request",
+    "INV-2 的 tool_intent/tool_done 配对在测试中通过遍历事件、对每个 tool_intent 找下一个 parent 指向它的 tool_done 实现;严格一对一(不允许 1:N 或 N:1)"
+  ]
+}

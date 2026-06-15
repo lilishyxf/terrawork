@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://terraworks.local/contracts/events.schema.json",
   "title": "TerraWorks Session Event",
-  "description": "Session 事件 schema（ARCHITECTURE 第 4 节）。Session 日志是唯一事实源：仅追加、永不 UPDATE/DELETE。每个改变世界的动作遵循预写规则（先 *_intent 后 *_done）。本 schema 约束单条事件的信封字段与 13 种事件类型各自的 payload 结构。注意：think 类事件（guide_think / npc_think）的可见性（对人全透明、对审查 NPC 物理隔离）由 assembleContext(role) 代码硬过滤强制，不在本 schema 内表达，schema 仅负责落盘结构。",
+  "description": "Session 事件 schema（ARCHITECTURE 第 4 节）。Session 日志是唯一事实源：仅追加、永不 UPDATE/DELETE。每个改变世界的动作遵循预写规则（先 *_intent 后 *_done）。本 schema 约束单条事件的信封字段与 14 种事件类型各自的 payload 结构。注意：think 类事件（guide_think / npc_think）的可见性（对人全透明、对审查 NPC 物理隔离）由 assembleContext(role) 代码硬过滤强制，不在本 schema 内表达，schema 仅负责落盘结构。",
   "type": "object",
   "additionalProperties": false,
   "required": ["event_id", "session_id", "ts", "agent", "type", "payload"],
@@ -42,9 +42,10 @@
         "merge",
         "hitl_request",
         "hitl_response",
-        "error"
+        "error",
+        "guide_assign"
       ],
-      "description": "13 种事件类型（v0.1 最小集）。"
+      "description": "14 种事件类型（v0.1 最小集 13 种 + ADR-011 增补 guide_assign）。"
     },
     "parent_event_id": {
       "type": ["integer", "null"],
@@ -70,7 +71,8 @@
     { "if": { "properties": { "type": { "const": "merge" } } },            "then": { "properties": { "payload": { "$ref": "#/$defs/p_merge" } } } },
     { "if": { "properties": { "type": { "const": "hitl_request" } } },     "then": { "properties": { "payload": { "$ref": "#/$defs/p_hitl_request" } } } },
     { "if": { "properties": { "type": { "const": "hitl_response" } } },    "then": { "properties": { "payload": { "$ref": "#/$defs/p_hitl_response" }, "parent_event_id": { "type": "integer", "minimum": 1 } }, "required": ["parent_event_id"] } },
-    { "if": { "properties": { "type": { "const": "error" } } },            "then": { "properties": { "payload": { "$ref": "#/$defs/p_error" } } } }
+    { "if": { "properties": { "type": { "const": "error" } } },            "then": { "properties": { "payload": { "$ref": "#/$defs/p_error" } } } },
+    { "if": { "properties": { "type": { "const": "guide_assign" } } },     "then": { "properties": { "payload": { "$ref": "#/$defs/p_guide_assign" }, "parent_event_id": { "type": "integer", "minimum": 1 } }, "required": ["parent_event_id"] } }
   ],
   "$defs": {
     "p_user_command": {
@@ -237,6 +239,17 @@
         "message": { "type": "string", "minLength": 1, "description": "异常描述。" },
         "task_id": { "type": "string", "description": "可选：相关任务。" },
         "agent_ref": { "type": "string", "description": "可选：出错的 NPC 实例。" }
+      }
+    },
+    "p_guide_assign": {
+      "title": "guide_assign — 派发任务卡到具体 NPC 实例（ADR-011）",
+      "description": "M1.3 派发期事件：把某张 guide_delegate 任务卡派给一个 NPC 实例。Session 仅追加，不回填既有 guide_delegate；重派则新增一条指向同一 task_card_event_id、不同 assignee_instance。",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["task_card_event_id", "assignee_instance"],
+      "properties": {
+        "task_card_event_id": { "type": "integer", "minimum": 1, "description": "被派发的 guide_delegate 事件 event_id（业务语义：派的是哪张卡）。" },
+        "assignee_instance": { "type": "string", "pattern": "^[a-z_][a-z0-9_]*#[0-9]+$", "description": "NPC 实例 ID，格式 <role_name>#<instance_number>，如 merchant#1、tailor#2。" }
       }
     }
   }

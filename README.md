@@ -31,3 +31,10 @@ python -m pytest harness/tests -v
 
 日常开发安装：`pip install -r harness/requirements.txt`（给宽松上界，允许小版本升级）
 复现 M1.x 验收时安装：`pip install -r harness/requirements.lock`（精确版本，与最近一次 acceptance.md 记录的版本一致）
+
+### 离线 vs Live 回归
+
+当前 `pytest harness/tests/` 默认会真调一次 DeepSeek（~18-20s，少量 token 成本），`[deepseek]` 那条 case 会从 SKIPPED 翻成 live PASSED。
+
+- **快速离线回归**：`pytest harness/tests/ -k "not real_guide"`（排除真实 LLM 路径，纯数据/mock，< 1s）
+- **含 live 验证**：`pytest harness/tests/`（默认，有 .env 时跑真 DeepSeek）
