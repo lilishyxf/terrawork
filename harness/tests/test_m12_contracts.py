@@ -146,6 +146,7 @@ def test_guide_step_with_mock_llm_satisfies_invariants():
 
 # ---- M1.2b 验收信号：真实 LLM provider（各自 KEY 门控） ----
 
+@pytest.mark.live
 @pytest.mark.parametrize("provider_model", [
     pytest.param(
         "deepseek/deepseek-chat",
