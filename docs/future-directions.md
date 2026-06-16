@@ -19,3 +19,11 @@
 ARCHITECTURE.md §10 终态设计("子进程 + git worktree 隔离"),M1.3 通过 ADR-012 推后到 M2。
 
 **启动 trigger**:M2 第一次需要多 NPC 并发时。届时 `execute_npc` 包装为 subprocess + stdin/stdout JSON-RPC,接口签名不变;数据参数 JSON 化、基础设施句柄(session_store / llm_client)子进程端各自重建,写同一 SQLite WAL(并发时一并验证)。
+
+## M4:角色市场 + 3rd-party agent pack 导入(community packs)
+
+- 用户/社区可以发布 agent pack(一组 role .md 文件 + 可选自定义工具)
+- GUI 角色面板三 tab:📦 浏览市场 / ⚙️ 小镇在岗 / ✏️ 自定义
+- 参考:contains-studio agents 风格(MIT 协议、按部门分类、专业字段 + 使用时机字段)
+- 跨领域支持:工程 / 设计 / 产品 / 销售 / 研究等,通过 ADR-013 的 `domain` 字段标识
+- 安全:导入的 agent pack 在 sandbox 工具白名单内运行,无法越权

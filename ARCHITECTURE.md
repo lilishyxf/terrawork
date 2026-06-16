@@ -1,6 +1,6 @@
 # ARCHITECTURE.md — 多Agent像素小镇编排平台
 
-> 工作名：**Township**（备选：GuildHall / 小镇 / NPC.dev）。定名前统一用 Township 指代。
+> 项目名：**TerraWorks**（Terra 取自拉丁语「大地」，亦呼应启发本项目美学的 Terraria；Works = 作坊）。曾用工作名 Township（M0 草案阶段）。
 > 版本：v0.1 架构基线 ｜ 状态：设计冻结前的最后评审稿
 > 美术风格：类泰拉瑞亚 2D 像素风（**不得**直接使用泰拉瑞亚的美术资产、角色名称原文与商标，NPC 命名采用职业泛称，避免 IP 风险）
 
@@ -8,11 +8,11 @@
 
 ## 0. 定位宣言
 
-**Township 是一个游戏化的多 Agent 编排平台，不是一个 Agent 监控皮肤。**
+**TerraWorks 是一个游戏化的多 Agent 编排平台，不是一个 Agent 监控皮肤。**
 
 - 像素小镇是**操作界面**，不是装饰：玩家与向导对话 = 下达任务；点击 NPC = 查看与干预；一屏世界 = 系统全量健康状态。
 - 游戏化是**信息密度手段**：一眼扫过小镇获取的状态信息（谁在干活、谁卡住、谁在等审查、任务流向哪、哪里需要人）必须超过一屏终端日志。达不到这个标准的游戏化元素一律砍掉。
-- 与现有同类（Pixel Agents / AgentRoom / OpenClaw 像素办公室）的本质区别：它们是**被动可视化**（trace → 动画的单向镜子）；Township 是**双向编排**（动画 ⇄ Harness 的操作闭环）。
+- 与现有同类（Pixel Agents / AgentRoom / OpenClaw 像素办公室）的本质区别：它们是**被动可视化**（trace → 动画的单向镜子）；TerraWorks 是**双向编排**（动画 ⇄ Harness 的操作闭环），**且领域无关——软件工程是 flagship 示范场景，角色生态向其他领域开放**。
 
 ---
 
@@ -53,7 +53,7 @@
 
 ## 2. 八条铁律 → 实现承诺
 
-| # | 铁律 | 来源 | Township 的实现 |
+| # | 铁律 | 来源 | TerraWorks 的实现 |
 |---|------|------|----------------|
 | ① | 三大抽象解耦 | Scaling Managed Agents | 第 1 节四层架构；Guide 崩溃 → `wake(sessionId)` 从日志续作 |
 | ② | 编排者只管分解/委派/验收 | Multi-Agent Research System | 任务卡 schema 强制四要素：目标、输出格式、工具白名单、边界；按复杂度缩放 NPC 数量 |
