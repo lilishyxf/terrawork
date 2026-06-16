@@ -4,9 +4,12 @@ M1.3-1: 仅数据层自洽 (data-scope invariants on reference_output).
 M1.3-3: 端到端(mock executor / worktree)将启用 runtime-scope invariants.
 """
 import json
+import subprocess
 from pathlib import Path
 
 from harness.session.schema import validate_event
+from harness.session.store import SessionStore
+from harness.sandbox.executor import execute_npc
 
 FIXTURE_DIR = Path(__file__).parent / "fixtures"
 
@@ -125,3 +128,98 @@ def test_reference_output_passes_data_scope_invariants():
     check_inv_5_tool_within_whitelist(events, prior)
     check_inv_6_all_schemas_pass(events)
     check_inv_7_completion_signal(events, trigger, prior)
+
+
+# ---- M1.3-3 端到端测试：scripted executor ----
+
+def _make_repo_with_initial_commit(repo_path: Path) -> None:
+    """tmp_path 下建一个能 git worktree add 的最小仓库。"""
+    subprocess.run(["git", "init", "-b", "main"], cwd=repo_path, check=True, capture_output=True)
+    subprocess.run(["git", "config", "user.email", "t@t"], cwd=repo_path, check=True, capture_output=True)
+    subprocess.run(["git", "config", "user.name", "t"], cwd=repo_path, check=True, capture_output=True)
+    test_dir = repo_path / "__tests__"
+    test_dir.mkdir(parents=True)
+    (test_dir / "login.test.ts").write_text(
+        "describe('login', () => { it('passes', () => {}); });",
+        encoding="utf-8",
+    )
+    subprocess.run(["git", "add", "."], cwd=repo_path, check=True, capture_output=True)
+    subprocess.run(["git", "commit", "-m", "init"], cwd=repo_path, check=True, capture_output=True)
+
+
+def _insert_event(store, ev: dict) -> dict:
+    """按 SessionStore 真实 API(keyword)灌入一个完整 fixture 事件。"""
+    return store.append_event(
+        agent=ev["agent"],
+        type=ev["type"],
+        payload=ev["payload"],
+        parent_event_id=ev["parent_event_id"],
+        session_id=ev["session_id"],
+        ts=ev["ts"],
+    )
+
+
+def _extract_scripted_actions(fixture: dict) -> list[dict]:
+    """从 fixture.reference_output 提取 tool_intent,组装 scripted_actions(write 补 dummy content)。"""
+    scripted = []
+    for e in fixture["reference_output"]:
+        if e["type"] != "tool_intent":
+            continue
+        tool = e["payload"]["tool"]
+        params = dict(e["payload"]["params"])
+        if tool == "write":
+            params["content"] = "// generated for M1.3-3 end-to-end test\nexport async function login() {}\n"
+        action = {"tool": tool, "params": params}
+        if "task_id" in e["payload"]:
+            action["task_id"] = e["payload"]["task_id"]
+        scripted.append(action)
+    return scripted
+
+
+def test_executor_scripted_satisfies_all_invariants(tmp_path):
+    """M1.3-3 端到端:scripted executor 跑完产出事件流,满足 INV-1~7(含 runtime)。"""
+    # 1. 临时 git repo
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _make_repo_with_initial_commit(repo)
+
+    # 2. 临时 session.db
+    store = SessionStore(tmp_path / "session.db")
+
+    # 3. 灌入 prior_context + trigger(按真实 keyword API)
+    fx = load_fixture("m13_merchant_login_impl.json")
+    for ev in fx["prior_context"]:
+        _insert_event(store, ev)
+    _insert_event(store, fx["trigger"])
+
+    # 4. 跑 executor
+    task_card = fx["prior_context"][2]["payload"]["task_card"]
+    scripted = _extract_scripted_actions(fx)
+    execute_npc(
+        npc_instance_id="merchant#1",
+        task_card=task_card,
+        session_store=store,
+        guide_assign_event_id=fx["trigger"]["event_id"],
+        repo_root=repo,
+        worktrees_base=tmp_path / "worktrees",
+        scripted_actions=scripted,
+    )
+
+    # 5. 取出执行期间产生的新事件(event_id > trigger)
+    all_events = store.query_session()
+    new_events = [e for e in all_events if e["event_id"] > fx["trigger"]["event_id"]]
+    assert len(new_events) >= 7  # 3 intent + 3 done + 1 review_request
+
+    # 6. INV-1 runtime:worktree 真创建了
+    wt = tmp_path / "worktrees" / "merchant-1"
+    assert wt.exists(), "INV-1: worktree 未创建"
+    assert (wt / ".git").exists(), "INV-1: worktree 缺 .git 标识"
+
+    # 7. INV-2~7 复用既有 check 函数
+    trigger = fx["trigger"]
+    check_inv_2_tool_events_paired_via_parent(new_events)
+    check_inv_3_parent_chain_strictly_backward(new_events, trigger)
+    check_inv_4_agent_field_consistent(new_events, trigger)
+    check_inv_5_tool_within_whitelist(new_events, fx["prior_context"])
+    check_inv_6_all_schemas_pass(new_events)
+    check_inv_7_completion_signal(new_events, trigger, fx["prior_context"])
