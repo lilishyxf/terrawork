@@ -46,3 +46,16 @@ def complete(model: str, messages: list[dict], **kwargs) -> str:
     raise ValueError(
         f"mock: no preset response for user message: {user_msg[:120]!r}"
     )
+
+
+def complete_with_tools(model: str, messages: list[dict], tools: list[dict], **kwargs):
+    """Mock client does NOT support tool calling.
+
+    Offline testing of executor LLM path is done via execute_npc(scripted_actions=[...]).
+    For live LLM execution, set TERRA_LLM_MODE=real.
+    """
+    raise NotImplementedError(
+        "mock_client.complete_with_tools() is not implemented. "
+        "Use scripted_actions in execute_npc() for offline testing, "
+        "or set TERRA_LLM_MODE=real for live LLM execution."
+    )

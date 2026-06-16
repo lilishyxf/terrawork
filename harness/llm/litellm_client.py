@@ -14,3 +14,23 @@ def complete(model: str, messages: list[dict], **kwargs) -> str:
         **kwargs,
     )
     return response.choices[0].message.content
+
+
+def complete_with_tools(model: str, messages: list[dict], tools: list[dict], **kwargs):
+    """LiteLLM completion with tool calling.
+
+    Unlike `complete()`, does NOT set response_format (incompatible with tool calling).
+    Returns the FULL message object (response.choices[0].message), not just .content.
+
+    Caller is responsible for:
+    - parsing message.tool_calls (each tc has .id, .function.name, .function.arguments JSON string)
+    - executing tools and appending tool results as messages with role='tool' + tool_call_id
+    - re-calling with updated messages until message.tool_calls is empty/None
+    """
+    response = litellm.completion(
+        model=model,
+        messages=messages,
+        tools=tools,
+        **kwargs,
+    )
+    return response.choices[0].message
