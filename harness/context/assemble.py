@@ -15,6 +15,23 @@ import yaml
 _PROJECT_ROOT = Path(__file__).parent.parent.parent
 
 
+def load_role_frontmatter(role_name: str) -> dict:
+    """Parse and return the YAML frontmatter dict from roles/{role_name}.md.
+
+    Used by executor to read role's `model` field for LLM dispatch.
+    """
+    role_file = _PROJECT_ROOT / "roles" / f"{role_name}.md"
+    if not role_file.exists():
+        raise FileNotFoundError(f"role file not found: {role_file}")
+    text = role_file.read_text(encoding="utf-8")
+    if not text.startswith("---\n"):
+        raise ValueError(f"{role_file} 缺 YAML frontmatter")
+    parts = text.split("---\n", 2)
+    if len(parts) < 3:
+        raise ValueError(f"{role_file} frontmatter 未闭合")
+    return yaml.safe_load(parts[1]) or {}
+
+
 def _load_role_body(role_name: str) -> str:
     """读 roles/<role_name>.md,提取 body(system prompt 正文,跳过 frontmatter)。"""
     role_file = _PROJECT_ROOT / "roles" / f"{role_name}.md"

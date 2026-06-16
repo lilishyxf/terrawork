@@ -4,8 +4,11 @@ M1.3-1: 仅数据层自洽 (data-scope invariants on reference_output).
 M1.3-3: 端到端(mock executor / worktree)将启用 runtime-scope invariants.
 """
 import json
+import os
 import subprocess
 from pathlib import Path
+
+import pytest
 
 from harness.session.schema import validate_event
 from harness.session.store import SessionStore
@@ -223,3 +226,134 @@ def test_executor_scripted_satisfies_all_invariants(tmp_path):
     check_inv_5_tool_within_whitelist(new_events, fx["prior_context"])
     check_inv_6_all_schemas_pass(new_events)
     check_inv_7_completion_signal(new_events, trigger, fx["prior_context"])
+
+
+# ---- M1.3-4 端到端 live 测试：真实 DeepSeek tool calling + Python 自验任务 ----
+
+def _make_empty_python_repo(repo_path: Path) -> None:
+    """Live test 用:干净 Python repo,merchant 从零写。"""
+    subprocess.run(["git", "init", "-b", "main"], cwd=repo_path, check=True, capture_output=True)
+    subprocess.run(["git", "config", "user.email", "t@t"], cwd=repo_path, check=True, capture_output=True)
+    subprocess.run(["git", "config", "user.name", "t"], cwd=repo_path, check=True, capture_output=True)
+    (repo_path / ".gitignore").write_text("__pycache__/\n*.pyc\n", encoding="utf-8")
+    subprocess.run(["git", "add", "."], cwd=repo_path, check=True, capture_output=True)
+    subprocess.run(["git", "commit", "-m", "init"], cwd=repo_path, check=True, capture_output=True)
+
+
+LIVE_TASK_CARD = {
+    "task_id": "t-py-login-impl",
+    "assignee_role": "builder",
+    "objective": (
+        "实现 login.py:暴露 login(username: str, password: str) -> dict 函数。"
+        "用 Python 标准库(不引入第三方依赖)。"
+        "返回字典 {'ok': True/False, 'user': username}。"
+        "凭据规则(仅本任务用,非产品级):"
+        "用户 'alice' 合法密码 'secret';用户 'bob' 合法密码 'hunter2';"
+        "其他用户名或错误密码返回 {'ok': False}。"
+        "用 hashlib 做密码哈希比较,不要明文存密码常量。"
+    ),
+    "output_format": "单文件 login.py,放在 worktree 根目录。",
+    "allowed_tools": ["read", "write", "bash"],
+    "boundaries": [
+        "只能用 Python 标准库(hashlib / hmac / typing 等),禁用第三方包",
+        "login.py 必须在 worktree 根目录,文件名严格为 login.py",
+        "不要写测试文件;实现完成后用 bash 跑 python -c '...' 自验",
+        "不要修改 .git/ 任何内容",
+    ],
+    "verification": [
+        {
+            "type": "machine_verifiable",
+            "command": (
+                "python -c \"from login import login; "
+                "assert login('alice','secret')['ok']==True; "
+                "assert login('alice','wrong')['ok']==False; "
+                "assert login('bob','hunter2')['ok']==True; "
+                "assert login('unknown','any')['ok']==False; "
+                "print('OK')\""
+            ),
+            "expected": {"exit_code": 0},
+        }
+    ],
+}
+
+
+@pytest.mark.live
+@pytest.mark.skipif(
+    not os.environ.get("DEEPSEEK_API_KEY"),
+    reason="DEEPSEEK_API_KEY not set; skipping live LLM test",
+)
+def test_executor_live_deepseek_satisfies_invariants(tmp_path, monkeypatch):
+    """M1.3-4 端到端 live:真实 DeepSeek tool calling + Python 自验任务。
+
+    收敛机制:boundaries 明示"实现完用 bash 跑 python -c 自验",merchant 写完
+    login.py 后跑 verification 命令拿到 exit_code=0,自然不再调工具 → 完成信号。
+
+    LLM 轨迹仍不可预测(可能勘探目录 2-3 次后再写),只校验结构性 INV-1~7。
+
+    prior chain 用 schema 合法事件(guide_delegate + guide_assign)构造——
+    check_inv_5/7 实际读 prior 里的 guide_delegate.payload.task_card,不依赖
+    world_state 之类(那不是 events.schema 的事件类型)。
+    """
+    monkeypatch.setenv("TERRA_LLM_MODE", "real")
+
+    # 1. 干净 Python repo
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _make_empty_python_repo(repo)
+
+    # 2. 临时 session.db
+    store = SessionStore(tmp_path / "session.db")
+
+    # 3. 构造 schema 合法的 prior chain:guide_delegate(挂 LIVE_TASK_CARD) → guide_assign
+    session_id = "live-test-session-001"
+    delegate_ev = store.append_event(
+        agent="guide",
+        type="guide_delegate",
+        payload={"task_card": LIVE_TASK_CARD},
+        session_id=session_id,
+    )
+    trigger_ev = store.append_event(
+        agent="guide",
+        type="guide_assign",
+        payload={
+            "task_card_event_id": delegate_ev["event_id"],
+            "assignee_instance": "merchant#1",
+        },
+        parent_event_id=delegate_ev["event_id"],
+        session_id=session_id,
+    )
+    trigger_eid = trigger_ev["event_id"]
+
+    # 4. 跑 executor,scripted_actions=None → LLM 真实路径
+    execute_npc(
+        npc_instance_id="merchant#1",
+        task_card=LIVE_TASK_CARD,
+        session_store=store,
+        guide_assign_event_id=trigger_eid,
+        repo_root=repo,
+        worktrees_base=tmp_path / "worktrees",
+        scripted_actions=None,
+        max_iterations=20,
+    )
+
+    # 5. 取出 merchant 产出的事件
+    all_events = store.query_session(session_id=session_id)
+    new_events = [e for e in all_events if e["event_id"] > trigger_eid]
+    prior_events = [e for e in all_events if e["event_id"] <= trigger_eid]
+
+    types = [e["type"] for e in new_events]
+    assert "tool_intent" in types, f"INV: 无 tool_intent. 事件类型: {types}"
+    assert "tool_done" in types, f"INV: 无 tool_done. 事件类型: {types}"
+    assert types[-1] == "review_request", f"INV-7: 末事件应为 review_request, 实际: {types}"
+
+    # INV-1 runtime: worktree 真创建
+    wt = tmp_path / "worktrees" / "merchant-1"
+    assert wt.exists() and (wt / ".git").exists(), "INV-1: worktree 未创建或缺 .git"
+
+    # INV-2~7（复用既有 check 函数；prior 传 schema 合法的 delegate+assign 两条）
+    check_inv_2_tool_events_paired_via_parent(new_events)
+    check_inv_3_parent_chain_strictly_backward(new_events, trigger_ev)
+    check_inv_4_agent_field_consistent(new_events, trigger_ev)
+    check_inv_5_tool_within_whitelist(new_events, prior_events)
+    check_inv_6_all_schemas_pass(new_events)
+    check_inv_7_completion_signal(new_events, trigger_ev, prior_events)
