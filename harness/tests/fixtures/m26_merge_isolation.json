@@ -1,0 +1,77 @@
+{
+  "id": "m26_merge_isolation",
+  "milestone": "M2.6-A",
+  "description": "真 git-merge 产物交换 + per-card worktree 隔离(ADR-016,收尾红线 #6)。锁 merge 事件的 post-M2.6 形态:真实 commit hash、source=builder 分支、target=main、result=success。两张卡(测试卡 t-login-tests / 实现卡 t-login-impl)各自独立 worktree(merchant-1/merchant-2),产物只经真 git merge 到 main 流动。data-scope 锁 merge 事件契约;隔离/依赖可见性/merge-then-verify 等 runtime INV 由 A3 e2e 验证。",
+  "created": "2026-06-17",
+
+  "trigger": {
+    "event_id": 1,
+    "session_id": "m26-merge",
+    "ts": "2026-06-17T15:00:00Z",
+    "agent": "user",
+    "type": "user_command",
+    "parent_event_id": null,
+    "payload": {"text": "做个登录(test-first)"}
+  },
+
+  "prior_context": [],
+
+  "invariants": [
+    {"id": "INV-1", "name": "isolated_worktree", "must": true, "scope": "runtime",
+     "description": "两张 builder 卡在不同 worktree 目录(merchant-1 ≠ merchant-2),无共享可写路径。取代 ADR-015/m2d 的 INV-7 shared_worktree。e2e 验证。"},
+    {"id": "INV-2", "name": "builder_commits", "must": true, "scope": "runtime",
+     "description": "每个 builder 分支构建后含真实 commit(分支 ref 前进、产物可 merge);空产物用 --allow-empty 保链路不断。e2e 验证。"},
+    {"id": "INV-3", "name": "dep_via_main", "must": true, "scope": "runtime",
+     "description": "实现卡 worktree 从 main 切、且在测试卡 merge-to-main 之后创建,故含测试文件——无共享目录即见依赖产物。e2e 验证。"},
+    {"id": "INV-4", "name": "merge_then_verify", "must": true, "scope": "runtime",
+     "description": "verifier 运行目录是独立验证 worktree(≠ builder live worktree)且仍跑通。取代 ADR-014 直接进 builder worktree。e2e 验证。"},
+    {"id": "INV-5", "name": "real_merge_to_main", "must": true, "scope": "data",
+     "description": "arbitrate_pass 的 merge 事件 result='success'、commit 为真实 hash(^[0-9a-f]{7,40}$)、source=builder 分支(npc/merchant-N)、target='main'。本 fixture data-scope 锁此形态。"},
+    {"id": "INV-6", "name": "redline6_closed", "must": true, "scope": "runtime",
+     "description": "全流程结束,任意两 NPC 实例 worktree 路径互不相同;跨卡产物只经 main 流动,无 sandbox 间可写共享。e2e 验证。"},
+    {"id": "INV-7", "name": "merge_events_pass_schema", "must": true, "scope": "data",
+     "description": "两条 merge 事件均通过 events.schema.json 的 p_merge(含首次填充的 commit 字段)。"}
+  ],
+
+  "reference_output": [
+    {
+      "event_id": 20,
+      "session_id": "m26-merge",
+      "ts": "2026-06-17T15:02:00Z",
+      "agent": "guide",
+      "type": "merge",
+      "parent_event_id": 19,
+      "payload": {
+        "task_id": "t-login-tests",
+        "source": "npc/merchant-1",
+        "target": "main",
+        "result": "success",
+        "commit": "a1b2c3d4e5f60718293a4b5c6d7e8f9012345678",
+        "milestone": true
+      }
+    },
+    {
+      "event_id": 40,
+      "session_id": "m26-merge",
+      "ts": "2026-06-17T15:05:00Z",
+      "agent": "guide",
+      "type": "merge",
+      "parent_event_id": 39,
+      "payload": {
+        "task_id": "t-login-impl",
+        "source": "npc/merchant-2",
+        "target": "main",
+        "result": "success",
+        "commit": "0f1e2d3c4b5a69788796a5b4c3d2e1f000112233",
+        "milestone": true
+      }
+    }
+  ],
+
+  "notes": [
+    "事件 id(20/40)与 parent 仅为契约示意,非真实序号;真实序号由 store 自增。reference_output 只取两条 merge 事件——M2.6 的新契约是 merge 形态(真 commit),完整事件流由 e2e 产生。",
+    "commit 字段为 schema 合法的 40 位 hex 占位;真实运行时由 git 产出。本 fixture 锁'有真实 hash 形态的 commit'(INV-5),不锁具体值(运行期非确定)。",
+    "source 是 builder 各自分支 npc/merchant-N(per-instance,ADR-016 撤销 ADR-015 共享 feature-1);target 恒为 main。",
+    "本 fixture data-scope 锁 INV-5/INV-7(merge 事件契约);INV-1/2/3/4/6(隔离/提交/依赖可见性/merge-then-verify/红线闭合)是 runtime,由 A3 e2e(改造自 test_m2_multicard_e2e)验证。"
+  ]
+}
