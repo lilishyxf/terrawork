@@ -1,0 +1,45 @@
+{
+  "id": "m2_review_isolation",
+  "milestone": "M2.1",
+  "description": "审查 context 物理隔离契约(铁律③ / §5 / ADR-002)。session 含制作 NPC 的 npc_think(带泄露哨兵字符串)、Guide 的 guide_think、以及事实事件(tool_done / verify_run)。assemble_review_context 装配出的审查 context **必须不含**任何 npc_think/guide_think 内容(尤其哨兵),**必须含**事实(文件/hash/验证结果)。",
+  "created": "2026-06-17",
+
+  "task_card": {
+    "task_id": "t-login-impl",
+    "assignee_role": "builder",
+    "objective": "实现 login.py,暴露 login(username, password) -> dict",
+    "output_format": "单文件 login.py",
+    "allowed_tools": ["read", "write", "bash"],
+    "boundaries": ["只用标准库", "密码永不明文存储"],
+    "verification": [{"type": "machine_verifiable", "command": "python -c \"import login; print('OK')\"", "expected": {"exit_code": 0}}]
+  },
+
+  "leak_sentinels": [
+    "SENTINEL_NPC_REASONING_MUST_NOT_LEAK",
+    "SENTINEL_GUIDE_REASONING_MUST_NOT_LEAK"
+  ],
+
+  "session": [
+    {"event_id": 1, "session_id": "m2-iso", "ts": "2026-06-17T13:00:00Z", "agent": "user", "type": "user_command", "parent_event_id": null, "payload": {"text": "做个登录"}},
+    {"event_id": 2, "session_id": "m2-iso", "ts": "2026-06-17T13:00:05Z", "agent": "guide", "type": "guide_think", "parent_event_id": 1, "payload": {"text": "SENTINEL_GUIDE_REASONING_MUST_NOT_LEAK: 我打算先派商人写,再让裁缝审。"}},
+    {"event_id": 3, "session_id": "m2-iso", "ts": "2026-06-17T13:00:06Z", "agent": "guide", "type": "guide_delegate", "parent_event_id": 2, "payload": {"task_card": {"task_id": "t-login-impl", "assignee_role": "builder", "objective": "实现 login.py", "output_format": "login.py", "allowed_tools": ["read", "write", "bash"], "boundaries": ["只用标准库"], "verification": [{"type": "machine_verifiable", "command": "python -c \"import login; print('OK')\"", "expected": {"exit_code": 0}}]}}},
+    {"event_id": 4, "session_id": "m2-iso", "ts": "2026-06-17T13:00:08Z", "agent": "guide", "type": "guide_assign", "parent_event_id": 3, "payload": {"task_card_event_id": 3, "assignee_instance": "merchant#1"}},
+    {"event_id": 5, "session_id": "m2-iso", "ts": "2026-06-17T13:00:12Z", "agent": "merchant#1", "type": "npc_think", "parent_event_id": 4, "payload": {"text": "SENTINEL_NPC_REASONING_MUST_NOT_LEAK: 我其实没仔细处理空密码,但应该没人测。", "task_id": "t-login-impl"}},
+    {"event_id": 6, "session_id": "m2-iso", "ts": "2026-06-17T13:00:14Z", "agent": "merchant#1", "type": "tool_intent", "parent_event_id": 5, "payload": {"tool": "write", "params": {"path": "login.py"}, "task_id": "t-login-impl"}},
+    {"event_id": 7, "session_id": "m2-iso", "ts": "2026-06-17T13:00:15Z", "agent": "merchant#1", "type": "tool_done", "parent_event_id": 6, "payload": {"tool": "write", "status": "ok", "file": "login.py", "hash": "5e884898da28047151d0e56f8dc6292773603d0d6aabbdd62a11ef721d1542d8"}},
+    {"event_id": 8, "session_id": "m2-iso", "ts": "2026-06-17T13:00:20Z", "agent": "merchant#1", "type": "review_request", "parent_event_id": 4, "payload": {"task_id": "t-login-impl", "reviewer": "tailor", "artifact": {"files": ["login.py"], "worktree": "data/worktrees/merchant-1"}}},
+    {"event_id": 9, "session_id": "m2-iso", "ts": "2026-06-17T13:00:25Z", "agent": "blaster#1", "type": "verify_run", "parent_event_id": 8, "payload": {"task_id": "t-login-impl", "command": "python -c \"import login; print('OK')\"", "exit_code": 0, "passed": true, "output_summary": "OK"}}
+  ],
+
+  "invariants": [
+    {"id": "INV-1", "name": "narrative_physically_isolated", "must": true, "scope": "data", "description": "审查 context(assemble_review_context 输出)的全部文本中,**不得出现**任何 npc_think / guide_think 的内容(尤其 leak_sentinels 里的哨兵字符串)。铁律③ / ADR-002 物理隔离。"},
+    {"id": "INV-2", "name": "facts_retained", "must": true, "scope": "data", "description": "审查 context 必须保留事实:tool_done 的文件名(login.py)、verify_run 的命令与 passed 结果——审查者据事实判断。"},
+    {"id": "INV-3", "name": "filter_drops_narrative_types", "must": true, "scope": "data", "description": "filter_events_for_review(session) 的结果中,事件类型不含 guide_think / npc_think;含 tool_done / verify_run 等事实类型。"}
+  ],
+
+  "notes": [
+    "哨兵字符串(leak_sentinels)只出现在 npc_think(#5)与 guide_think(#2)的 payload.text 里。INV-1 断言它们绝不出现在审查 context 文本中——这是物理隔离的可机器验证锚点。",
+    "隔离由 assemble_review_context 内的代码硬过滤(filter_events_for_review)强制,不靠 prompt(ADR-002)。",
+    "本 fixture 只验隔离(context 装配),不涉及 tailor 真实出 verdict(那是 M2.1 接审查步 + verdict 来源决策②)。"
+  ]
+}

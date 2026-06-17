@@ -92,3 +92,67 @@ def assemble_context_for_npc(role_name: str, task_card: dict) -> list[dict]:
         {"role": "system", "content": _load_role_body(role_name)},
         {"role": "user", "content": _render_task_card(task_card)},
     ]
+
+
+# --- M2.1 审查 context 物理隔离(铁律③ / §5 可见性矩阵 / ADR-002) ---
+
+# 审查 NPC 只看"事实",不看"叙述"。§5 矩阵:审查 NPC 可见 tool_intent/done(代码与文件
+# 事实)、verify_run、review_verdict、user_command(任务相关);**guide_think / npc_think
+# 物理隔离(❌)**。此白名单由代码硬过滤强制,不允许 prompt 层绕过。
+_REVIEWER_VISIBLE_TYPES = frozenset(
+    {"user_command", "tool_intent", "tool_done", "verify_run", "review_verdict"}
+)
+
+# 永不进入审查 context 的"叙述"类型(显式列出,作隔离断言锚点)。
+_NARRATIVE_TYPES = frozenset({"guide_think", "npc_think"})
+
+
+def filter_events_for_review(events: list[dict]) -> list[dict]:
+    """按 §5 可见性矩阵硬过滤出审查 NPC 可见的事实事件。
+
+    只保留 _REVIEWER_VISIBLE_TYPES;guide_think / npc_think 等叙述类型一律剔除(铁律③)。
+    """
+    return [e for e in events if e["type"] in _REVIEWER_VISIBLE_TYPES]
+
+
+def _render_facts(events: list[dict]) -> str:
+    """把过滤后的事实事件渲染为审查者可读文本(仅事实,无推理)。"""
+    lines = []
+    for e in events:
+        p = e["payload"]
+        if e["type"] == "tool_intent":
+            lines.append(f"- [{e['agent']}] 调用 {p.get('tool')} {p.get('params', {})}")
+        elif e["type"] == "tool_done":
+            lines.append(
+                f"- [{e['agent']}] {p.get('tool')} 完成 file={p.get('file', '')} "
+                f"status={p.get('status')} hash={(p.get('hash') or '')[:12]}"
+            )
+        elif e["type"] == "verify_run":
+            lines.append(
+                f"- [验证] `{p.get('command')}` exit_code={p.get('exit_code')} passed={p.get('passed')}"
+            )
+        elif e["type"] == "review_verdict":
+            lines.append(f"- [既往结论] {p.get('verdict')} {p.get('notes', '')}")
+        elif e["type"] == "user_command":
+            lines.append(f"- [用户指令] {p.get('text', '')}")
+    return "\n".join(lines) if lines else "(无事实事件)"
+
+
+def assemble_review_context(
+    task_card: dict, session_events: list[dict], *, role_name: str = "tailor"
+) -> list[dict]:
+    """为审查 NPC 装配 context:system(角色) + 任务卡 + **物理隔离后的事实历史**。
+
+    制作 NPC 的 npc_think、Guide 的 guide_think 在此被代码硬过滤剔除(铁律③ / ADR-002),
+    审查者拿不到任何"叙述",只拿"事实"(代码/工具/测试结果)。
+    """
+    facts = filter_events_for_review(session_events)
+    user = (
+        _render_task_card(task_card)
+        + "\n\n## 待审查的事实(仅代码/工具/测试事实,制作者推理已被物理隔离)\n"
+        + _render_facts(facts)
+    )
+    return [
+        {"role": "system", "content": _load_role_body(role_name)},
+        {"role": "user", "content": user},
+    ]
