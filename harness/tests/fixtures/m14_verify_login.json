@@ -1,0 +1,226 @@
+{
+  "id": "m14_verify_login",
+  "milestone": "M1.4",
+  "description": "Verification + verdict 契约 — 爆破专家(blaster#1)在 builder worktree 内只读+执行 task_card.verification[0].command(ADR-014),产出 verify_run;Guide 据 verify_run 出具 review_verdict。data-scope INV 验证 fixture 自洽;runtime-scope INV-8 留 M1.4-2/3 端到端。",
+  "created": "2026-06-17",
+
+  "prior_context": [
+    {
+      "event_id": 1,
+      "session_id": "m14-fixture-verify",
+      "ts": "2026-06-17T10:00:00Z",
+      "agent": "user",
+      "type": "user_command",
+      "parent_event_id": null,
+      "payload": {"text": "做个登录"}
+    },
+    {
+      "event_id": 2,
+      "session_id": "m14-fixture-verify",
+      "ts": "2026-06-17T10:00:05Z",
+      "agent": "guide",
+      "type": "guide_think",
+      "parent_event_id": 1,
+      "payload": {"text": "拆三步:实现 / 验证 / 验收"}
+    },
+    {
+      "event_id": 3,
+      "session_id": "m14-fixture-verify",
+      "ts": "2026-06-17T10:00:06Z",
+      "agent": "guide",
+      "type": "guide_delegate",
+      "parent_event_id": 2,
+      "payload": {
+        "task_card": {
+          "task_id": "t-login-impl",
+          "assignee_role": "builder",
+          "objective": "实现 login.py:暴露 login(username, password) -> dict;用 hashlib 哈希,不存明文。",
+          "output_format": "单文件 login.py 在 worktree 根",
+          "allowed_tools": ["read", "write", "bash"],
+          "boundaries": [
+            "只用 Python 标准库,禁第三方包",
+            "密码永不明文存储"
+          ],
+          "verification": [
+            {
+              "type": "machine_verifiable",
+              "command": "python -c \"from login import login; assert login('alice','secret')['ok']==True; assert login('alice','wrong')['ok']==False; print('OK')\"",
+              "expected": {
+                "exit_code": 0,
+                "stdout_contains": "OK"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "event_id": 4,
+      "session_id": "m14-fixture-verify",
+      "ts": "2026-06-17T10:00:08Z",
+      "agent": "guide",
+      "type": "guide_assign",
+      "parent_event_id": 3,
+      "payload": {
+        "task_card_event_id": 3,
+        "assignee_instance": "merchant#1"
+      }
+    },
+    {
+      "event_id": 5,
+      "session_id": "m14-fixture-verify",
+      "ts": "2026-06-17T10:00:12Z",
+      "agent": "merchant#1",
+      "type": "tool_intent",
+      "parent_event_id": 4,
+      "payload": {
+        "tool": "write",
+        "params": {"path": "login.py"},
+        "task_id": "t-login-impl"
+      }
+    },
+    {
+      "event_id": 6,
+      "session_id": "m14-fixture-verify",
+      "ts": "2026-06-17T10:00:13Z",
+      "agent": "merchant#1",
+      "type": "tool_done",
+      "parent_event_id": 5,
+      "payload": {
+        "tool": "write",
+        "status": "ok",
+        "file": "login.py",
+        "hash": "5e884898da28047151d0e56f8dc6292773603d0d6aabbdd62a11ef721d1542d8"
+      }
+    },
+    {
+      "event_id": 7,
+      "session_id": "m14-fixture-verify",
+      "ts": "2026-06-17T10:00:20Z",
+      "agent": "merchant#1",
+      "type": "review_request",
+      "parent_event_id": 4,
+      "payload": {
+        "task_id": "t-login-impl",
+        "reviewer": "blaster",
+        "artifact": {
+          "files": ["login.py"],
+          "worktree": "data/worktrees/merchant-1"
+        }
+      }
+    }
+  ],
+
+  "trigger": {
+    "event_id": 8,
+    "session_id": "m14-fixture-verify",
+    "ts": "2026-06-17T10:00:22Z",
+    "agent": "guide",
+    "type": "guide_assign",
+    "parent_event_id": 7,
+    "payload": {
+      "task_card_event_id": 3,
+      "assignee_instance": "blaster#1"
+    }
+  },
+
+  "invariants": [
+    {
+      "id": "INV-1",
+      "name": "verify_run_well_formed",
+      "must": true,
+      "scope": "data",
+      "description": "恰好 1 个 verify_run 事件;agent == trigger.payload.assignee_instance('blaster#1');parent_event_id == trigger.event_id;payload.task_id == 任务卡 task_id"
+    },
+    {
+      "id": "INV-2",
+      "name": "verifier_runs_schema_command_verbatim",
+      "must": true,
+      "scope": "data",
+      "description": "verify_run.payload.command 必须 == prior_context 中对应 guide_delegate.payload.task_card.verification[0].command。验证者只跑 schema 里那条命令,不自创、不改写(ADR-004 '只执行不判断';verification.schema runner_role: verifier)"
+    },
+    {
+      "id": "INV-3",
+      "name": "verify_run_required_fields",
+      "must": true,
+      "scope": "data",
+      "description": "verify_run.payload 含 required 四字段 task_id / command / exit_code(integer) / passed(boolean)(events.schema p_verify_run)"
+    },
+    {
+      "id": "INV-4",
+      "name": "verdict_well_formed",
+      "must": true,
+      "scope": "data",
+      "description": "恰好 1 个 review_verdict 事件;agent == 'guide';parent_event_id == verify_run.event_id(验收基于验证);verdict ∈ {pass, reject};task_id == 任务卡 task_id"
+    },
+    {
+      "id": "INV-5",
+      "name": "machine_judgment_authority",
+      "must": true,
+      "scope": "data",
+      "description": "机器判定一致性(M1.4 灵魂 INV):verify_run.passed == True 当且仅当 review_verdict.verdict == 'pass'。Guide 不推翻机器结果(passed=False 时禁止 verdict='pass');reject 仅当 passed=False 时合法(ADR-004 信任问题转化为执行问题)"
+    },
+    {
+      "id": "INV-6",
+      "name": "all_schemas_pass",
+      "must": true,
+      "scope": "data",
+      "description": "所有产出事件通过 events.schema.json(verify_run / review_verdict 各自 required 字段齐)"
+    },
+    {
+      "id": "INV-7",
+      "name": "parent_chain_strictly_backward",
+      "must": true,
+      "scope": "data",
+      "description": "所有产出事件 parent_event_id 为正整数(ADR-007),链回 trigger 或先前事件,且 parent < 自身 event_id(指针严格向后)"
+    },
+    {
+      "id": "INV-8",
+      "name": "verifier_executes_in_builder_worktree",
+      "must": true,
+      "scope": "runtime",
+      "description": "verifier cwd == builder worktree(ADR-014);执行命令真实跑通并产出实际 exit_code;verifier 不向 builder worktree 写任何文件(只读+执行,M1 让步边界)。M1.4-1 不验证,M1.4-2/3 端到端时验证"
+    }
+  ],
+
+  "reference_output": [
+    {
+      "event_id": 9,
+      "session_id": "m14-fixture-verify",
+      "ts": "2026-06-17T10:00:25Z",
+      "agent": "blaster#1",
+      "type": "verify_run",
+      "parent_event_id": 8,
+      "payload": {
+        "task_id": "t-login-impl",
+        "command": "python -c \"from login import login; assert login('alice','secret')['ok']==True; assert login('alice','wrong')['ok']==False; print('OK')\"",
+        "exit_code": 0,
+        "passed": true,
+        "output_summary": "OK"
+      }
+    },
+    {
+      "event_id": 10,
+      "session_id": "m14-fixture-verify",
+      "ts": "2026-06-17T10:00:26Z",
+      "agent": "guide",
+      "type": "review_verdict",
+      "parent_event_id": 9,
+      "payload": {
+        "task_id": "t-login-impl",
+        "reviewer": "guide",
+        "verdict": "pass",
+        "notes": "verify_run#9 passed (exit_code=0, expected satisfied)"
+      }
+    }
+  ],
+
+  "notes": [
+    "trigger 是 guide_assign 派 blaster#1(M1.4 Guide 读到 review_request 后另派一次,链 review_request → guide_assign → verify_run → review_verdict)。这条接力链可与 M1.3 的 builder 派发同形(都是 guide_assign),复用 ADR-011 schema 无需新事件类型。",
+    "INV-5(machine_judgment_authority)是 M1.4 灵魂 INV:Guide 出具 verdict 时的判定权交给 machine——passed=True 必须 verdict=pass,passed=False 禁止 verdict=pass。这对应 ADR-004 '信任问题转化为执行问题';M1 reject 路径简化为 hitl_request 兜底(多轮返工留 M2)。",
+    "INV-2 强制 verify_run.command 与 task_card 里那条逐字一致——verifier 不自创命令、不改写。这是 ADR-004 第一层 + verification.schema runner_role='verifier' 的运行时反映。",
+    "review_verdict.reviewer='guide':M1 由 Guide 基于 verify_run 直接出具验收(判定权在编排者、执行权在 verifier,职责分离)。M2 引入裁缝 tailor 做代码审查时 reviewer 才会出现 tailor。",
+    "review_request.reviewer='blaster':M1 prior 改 M1.3 硬编码占位 'tailor' → 'blaster',更贴 M1 实情(没有 tailor)。",
+    "ADR-014 让 verifier 直接在 builder worktree 跑(只读+执行不写),不引入 M2 的 merge-then-verify。"
+  ]
+}
