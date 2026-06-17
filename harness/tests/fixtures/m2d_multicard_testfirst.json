@@ -1,0 +1,103 @@
+{
+  "id": "m2d_multicard_testfirst",
+  "milestone": "M2.4",
+  "description": "多卡 test-first 分解契约(ADR-004 第二层 / ADR-015)。Guide 把功能拆成两张 builder 卡:① 测试卡(写测试,实现缺失时可 collect)② 实现卡(depends_on 测试卡,让测试通过、不改测试)。测试作者≠实现者(不同 merchant 实例)、共享 worktree、顺序执行——runtime INV 由 e2e 验证;本 fixture 锁分解结构(data-scope)。",
+  "created": "2026-06-17",
+
+  "trigger": {
+    "event_id": 1,
+    "session_id": "m2d-testfirst",
+    "ts": "2026-06-17T14:00:00Z",
+    "agent": "user",
+    "type": "user_command",
+    "parent_event_id": null,
+    "payload": {"text": "做个登录(test-first)"}
+  },
+
+  "prior_context": [],
+
+  "invariants": [
+    {"id": "INV-1", "name": "exactly_two_builder_cards", "must": true, "scope": "data",
+     "description": "test-first 分解:恰好 2 张 assignee_role=builder 的任务卡(测试卡 + 实现卡)"},
+    {"id": "INV-2", "name": "impl_depends_on_tests", "must": true, "scope": "data",
+     "description": "实现卡 depends_on 含测试卡的 task_id(卡间依赖声明,编排据此顺序派发)"},
+    {"id": "INV-3", "name": "separation_in_boundaries", "must": true, "scope": "data",
+     "description": "测试卡 boundaries 声明'不写实现';实现卡 boundaries 声明'不改测试'(ADR-004 测试与实现分离)"},
+    {"id": "INV-4", "name": "verification_intent", "must": true, "scope": "data",
+     "description": "两卡 verification 均 machine_verifiable;测试卡验'可 collect'(实现缺失也成立)、实现卡验'测试通过(exit_code 0)'"},
+    {"id": "INV-5", "name": "cards_pass_schema", "must": true, "scope": "data",
+     "description": "两张任务卡均通过 task_card.schema.json(含 depends_on 字段)"},
+    {"id": "INV-6", "name": "test_author_ne_implementer", "must": true, "scope": "runtime",
+     "description": "派发时测试卡与实现卡分到**不同** builder 实例(merchant#1 vs merchant#2)。e2e 验证。"},
+    {"id": "INV-7", "name": "shared_worktree", "must": true, "scope": "runtime",
+     "description": "两卡在**同一**共享 worktree(ADR-015 feature worktree)内工作,实现者看得见测试。e2e 验证。"},
+    {"id": "INV-8", "name": "depends_on_ordering", "must": true, "scope": "runtime",
+     "description": "实现卡在测试卡 merge 之后才被派发(depends_on 编排)。e2e 验证。"}
+  ],
+
+  "reference_output": [
+    {
+      "event_id": 2,
+      "session_id": "m2d-testfirst",
+      "ts": "2026-06-17T14:00:05Z",
+      "agent": "guide",
+      "type": "guide_think",
+      "parent_event_id": 1,
+      "payload": {"text": "test-first:先派一个 NPC 写测试,再派另一个 NPC 实现让测试通过(作者≠实现者,ADR-004)。"}
+    },
+    {
+      "event_id": 3,
+      "session_id": "m2d-testfirst",
+      "ts": "2026-06-17T14:00:06Z",
+      "agent": "guide",
+      "type": "guide_delegate",
+      "parent_event_id": 2,
+      "payload": {
+        "task_card": {
+          "task_id": "t-login-tests",
+          "assignee_role": "builder",
+          "objective": "为 login(username, password) -> dict 写 pytest 测试(test_login.py),覆盖成功登录与凭据错误两种场景。测试必须在实现缺失时可被 pytest collect(语法/导入有效),但因无实现而 fail。",
+          "output_format": "test_login.py 在 worktree 根",
+          "allowed_tools": ["read", "write", "bash"],
+          "boundaries": ["只写测试,不写任何实现代码", "用 Python 标准库 + pytest", "测试名清晰描述行为"],
+          "verification": [
+            {"type": "machine_verifiable",
+             "command": "python -m pytest test_login.py --collect-only -q",
+             "expected": {"exit_code": 0}}
+          ]
+        }
+      }
+    },
+    {
+      "event_id": 4,
+      "session_id": "m2d-testfirst",
+      "ts": "2026-06-17T14:00:07Z",
+      "agent": "guide",
+      "type": "guide_delegate",
+      "parent_event_id": 2,
+      "payload": {
+        "task_card": {
+          "task_id": "t-login-impl",
+          "assignee_role": "builder",
+          "objective": "实现 login.py,使 test_login.py 中既有测试全部通过。密码用 hashlib 哈希比对,不存明文。",
+          "output_format": "login.py 在 worktree 根",
+          "allowed_tools": ["read", "write", "bash"],
+          "boundaries": ["不得修改 test_login.py(测试与实现分离)", "只用 Python 标准库", "密码永不明文存储"],
+          "depends_on": ["t-login-tests"],
+          "verification": [
+            {"type": "machine_verifiable",
+             "command": "python -m pytest test_login.py",
+             "expected": {"exit_code": 0}}
+          ]
+        }
+      }
+    }
+  ],
+
+  "notes": [
+    "两张卡都是 assignee_role=builder;测试作者≠实现者由**派发时分到不同实例**(merchant#1/merchant#2)保证,非由 role 区分(role 都是 builder)。INV-6 runtime 验。",
+    "depends_on=['t-login-tests'] 让编排器在测试卡 merge 后才派实现卡(INV-8);实现者在共享 worktree(ADR-015)里看得见测试(INV-7)。",
+    "测试卡 verification 用 --collect-only(验测试存在且有效,实现缺失也成立);实现卡 verification 跑全测试(验通过)。这对应 ADR-004'测试在实现缺失时 failing、实现到位后 passing'。",
+    "本 fixture 锁 data-scope 分解结构(INV-1~5);INV-6~8 是 runtime(实例分离/共享 worktree/依赖排序),由 M2.4 e2e 验证。"
+  ]
+}
