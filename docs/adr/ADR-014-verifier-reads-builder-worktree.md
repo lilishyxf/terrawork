@@ -26,6 +26,7 @@ M1.4 引入 verifier（爆破专家）执行 `task_card.verification[].machine_v
 - **M1.4 实施代价**：verify_executor 函数签名 `verify_task(verifier_instance_id, task_card, builder_worktree, session_store)`，无 merge 协议、无独立验证 worktree 创建，范围 controllable。
 - **M2 升级路径锁定**：M2 引入"merge-then-verify"——Guide 把 builder 分支 merge 到 verification worktree（或临时 detached HEAD），verifier 在验证 worktree 跑。届时 verify_executor 的签名不变（依然接 `builder_worktree`），但 `builder_worktree` 由 Guide merge 出来，与 builder 实际 worktree 分离。**接口不变、实现替换**，同 ADR-012 节奏。
 - **"只读+执行不写"的强制方式**：M1.4 verify_executor **不暴露 tool_intent 接口**——verifier 只能执行 verification.schema 里那条 command，不像 builder 那样有 read/write/bash 工具白名单。这从 API 层挡掉了"verifier 顺手改文件"的可能。规则上由 ADR 明示、机制上由 executor 不开放写 API 共同保证。
+- **"不写"的精确语义（M1.4-2 澄清）**："verifier 不写 builder worktree" 指**不写 builder 的源产物**——verifier 不通过任何工具修改源文件。但执行验证命令本身可能产生**执行副产物**：例如 `python -c "import login"` 会写 `__pycache__/login.*.pyc` 字节码缓存。该副产物不计为"verifier 写入"，因为：(a) 它是 Python 执行 import 的固有行为、非 verifier 改源；(b) 命令逐字执行（INV-2），不可注入 `-B` 抑制。INV-8(c) 的无写校验据此排除 `__pycache__/*.pyc`，只断言源文件不变。
 - **真隔离推后**：M2 多 NPC 并发时，多个 verifier 共用同一 builder worktree 会冲突，必须升 merge-then-verify。M1.4 单 NPC 单实例下二者无并发，让步安全。
 - **§12 M1 验收成立**：M1 验收要求"一条模糊指令 → 自动拆解 → 执行 → 验证 → 日志完整可回放"，本 ADR 让 M1.4 在不引入 merge 的前提下达成验证那一环。
 - **本 ADR 修订基线职责红线 #3 的解释（M1 阶段限定）**：可追溯性由本 ADR + git diff 承载，不在 ARCHITECTURE.md §1 加标注（沿用 ADR-007/010/011 同款治理）。M2 引入 merge-then-verify 时另起 ADR 收尾该让步。

@@ -179,7 +179,7 @@
       "name": "verifier_executes_in_builder_worktree",
       "must": true,
       "scope": "runtime",
-      "description": "verifier cwd == builder worktree(ADR-014);执行命令真实跑通并产出实际 exit_code;verifier 不向 builder worktree 写任何文件(只读+执行,M1 让步边界)。M1.4-1 不验证,M1.4-2/3 端到端时验证"
+      "description": "verifier cwd == builder worktree(ADR-014);执行命令真实跑通并产出实际 exit_code;verifier 不向 builder worktree 写任何文件——'不写'指不写 builder 源产物(verifier 不通过工具改源);执行验证命令时 Python import 产生的 __pycache__/*.pyc 字节码缓存是执行副产物,不计为 verifier 写入(命令逐字执行,不可注入 -B)。M1.4-1 不验证,M1.4-2/3 端到端时验证"
     }
   ],
 
