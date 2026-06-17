@@ -25,7 +25,12 @@
     },
     "assignee_role": {
       "enum": ["builder", "reviewer", "verifier", "orchestrator"],
-      "description": "承接该任务的角色类型（对应 roles/ 下角色文件的 role 字段）。"
+      "description": "承接该任务的角色类型（对应 roles/ 下角色文件的 role 字段）。功能轴（ADR-019）：驱动编排闭环与 maker≠checker。"
+    },
+    "assignee_specialty": {
+      "type": "string",
+      "pattern": "^[a-z_][a-z0-9_]*$",
+      "description": "可选 — 专长键（ADR-019 双轴模型的专长轴）：承接该 builder 任务的具体专家，对应 roles/ 下某 role:builder 角色文件的 name（如 'frontend'/'backend'/'desktop_shell'）。功能轴由 assignee_role 决定，本字段决定由哪个专家来当这个 builder。缺省 → merchant（向后兼容）。须满足实例 slug 前缀正则。"
     },
     "objective": {
       "type": "string",

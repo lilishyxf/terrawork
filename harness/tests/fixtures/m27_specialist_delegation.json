@@ -1,0 +1,143 @@
+{
+  "id": "m27_specialist_delegation",
+  "milestone": "M2.7",
+  "description": "角色感知的专家委派契约(ADR-019)。用户要一个桌面应用(带登录的记账应用),向导自动拆解并把每张卡匹配到合适的 builder 专长:UI→frontend、逻辑/认证→backend、存储→database、打包/窗口→desktop_shell。每卡 assignee_role=builder(功能轴,走同一闭环)+ assignee_specialty(专长轴,决定由哪个专家来当 builder)。data-scope 锁分解与匹配结构;按专长实例化/双审查等 runtime INV 由 M2.7-3/4 e2e 验证。",
+  "created": "2026-06-18",
+
+  "trigger": {
+    "event_id": 1,
+    "session_id": "m27-specialist",
+    "ts": "2026-06-18T10:00:00Z",
+    "agent": "user",
+    "type": "user_command",
+    "parent_event_id": null,
+    "payload": {"text": "做一个带登录的桌面记账应用"}
+  },
+
+  "prior_context": [],
+
+  "invariants": [
+    {"id": "INV-1", "name": "specialty_cards_pass_schema", "must": true, "scope": "data",
+     "description": "带 assignee_specialty 的任务卡过 task_card.schema;去掉该字段的卡仍合法(向后兼容)"},
+    {"id": "INV-2", "name": "guide_matches_distinct_specialties", "must": true, "scope": "data",
+     "description": "向导按子任务把卡匹配到 ≥3 个不同的 builder 专长(非全部塞给一个默认 builder)"},
+    {"id": "INV-3", "name": "specialty_in_roster", "must": true, "scope": "data",
+     "description": "每个 assignee_specialty 值都属于锁定的 builder 专长集(frontend/backend/database/desktop_shell/ai_engineer/rapid_proto/tech_writer)"},
+    {"id": "INV-4", "name": "instantiate_by_specialty", "must": true, "scope": "runtime",
+     "description": "编排器按卡的 assignee_specialty 实例化 <specialty>#N、载入对应角色文件,非写死 merchant。e2e 验证。"},
+    {"id": "INV-5", "name": "test_author_ne_implementer_holds", "must": true, "scope": "runtime",
+     "description": "专长模型下 test-author≠implementer 仍成立(不同卡→不同实例)。e2e 验证。"},
+    {"id": "INV-6", "name": "dual_review_aggregation", "must": true, "scope": "runtime",
+     "description": "双审查(tailor 代码审查 + appsec 安全审查)都 pass 才 merge;任一 reject 触发返工。e2e 验证。"},
+    {"id": "INV-7", "name": "backward_compat_merchant", "must": true, "scope": "runtime",
+     "description": "无 assignee_specialty 的旧式分解仍走 merchant 单审查闭环(零回归)。e2e 验证。"}
+  ],
+
+  "reference_output": [
+    {
+      "event_id": 2,
+      "session_id": "m27-specialist",
+      "ts": "2026-06-18T10:00:05Z",
+      "agent": "guide",
+      "type": "guide_think",
+      "parent_event_id": 1,
+      "payload": {"text": "桌面记账应用拆四块:登录与记账界面(前端)、记账与认证逻辑(后端)、账目存储(数据库)、窗口与打包(桌面壳)。各匹配对应专家。"}
+    },
+    {
+      "event_id": 3,
+      "session_id": "m27-specialist",
+      "ts": "2026-06-18T10:00:06Z",
+      "agent": "guide",
+      "type": "guide_delegate",
+      "parent_event_id": 2,
+      "payload": {
+        "task_card": {
+          "task_id": "t-ui",
+          "assignee_role": "builder",
+          "assignee_specialty": "frontend",
+          "objective": "实现登录界面与记账主界面(账目列表、收支录入表单),WebView 内的 React 组件,响应式布局。",
+          "output_format": "src/ui/ 下的 React 组件,导出 LoginView 与 LedgerView",
+          "allowed_tools": ["read", "write", "bash"],
+          "boundaries": ["只写 UI 层,不写存储与业务逻辑", "密码输入框不得明文回显到控制台"],
+          "verification": [
+            {"type": "machine_verifiable", "command": "npm run build", "expected": {"exit_code": 0}}
+          ]
+        }
+      }
+    },
+    {
+      "event_id": 4,
+      "session_id": "m27-specialist",
+      "ts": "2026-06-18T10:00:07Z",
+      "agent": "guide",
+      "type": "guide_delegate",
+      "parent_event_id": 2,
+      "payload": {
+        "task_card": {
+          "task_id": "t-logic",
+          "assignee_role": "builder",
+          "assignee_specialty": "backend",
+          "objective": "实现记账业务逻辑与登录认证:收支记录的增删改查、余额汇总、密码哈希校验。",
+          "output_format": "src/core/ 下的模块,导出 auth 与 ledger API",
+          "allowed_tools": ["read", "write", "bash"],
+          "boundaries": ["密码永不明文存储(哈希)", "不直接写 UI,不直接拼 SQL(走存储层接口)"],
+          "verification": [
+            {"type": "machine_verifiable", "command": "npm test", "expected": {"exit_code": 0}}
+          ]
+        }
+      }
+    },
+    {
+      "event_id": 5,
+      "session_id": "m27-specialist",
+      "ts": "2026-06-18T10:00:08Z",
+      "agent": "guide",
+      "type": "guide_delegate",
+      "parent_event_id": 2,
+      "payload": {
+        "task_card": {
+          "task_id": "t-storage",
+          "assignee_role": "builder",
+          "assignee_specialty": "database",
+          "objective": "设计本地 SQLite 账目存储:用户表、交易表、迁移脚本与索引;提供存储层接口。",
+          "output_format": "src/storage/ 下的 schema 迁移 + 数据访问层",
+          "allowed_tools": ["read", "write", "bash"],
+          "boundaries": ["只管存储层,不写业务逻辑", "迁移必须可重复执行(幂等)"],
+          "verification": [
+            {"type": "machine_verifiable", "command": "npm run migrate -- --check", "expected": {"exit_code": 0}}
+          ]
+        }
+      }
+    },
+    {
+      "event_id": 6,
+      "session_id": "m27-specialist",
+      "ts": "2026-06-18T10:00:09Z",
+      "agent": "guide",
+      "type": "guide_delegate",
+      "parent_event_id": 2,
+      "payload": {
+        "task_card": {
+          "task_id": "t-package",
+          "assignee_role": "builder",
+          "assignee_specialty": "desktop_shell",
+          "objective": "配置 Tauri 桌面壳:主窗口、应用菜单与托盘、把前端打进桌面应用,产出可调试构建。",
+          "output_format": "src-tauri/ 配置 + 可运行的 debug 构建",
+          "allowed_tools": ["read", "write", "bash"],
+          "boundaries": ["只配桌面壳与打包,不改业务代码", "不放宽默认窗口安全策略"],
+          "verification": [
+            {"type": "machine_verifiable", "command": "npm run tauri build -- --debug", "expected": {"exit_code": 0}}
+          ]
+        }
+      }
+    }
+  ],
+
+  "notes": [
+    "四张卡都是 assignee_role=builder(同一 验证→审查→merge 闭环、可并行),靠 assignee_specialty 区分由哪个专家来当——这就是双轴模型(ADR-019)。",
+    "向导把 UI/逻辑/存储/打包分别匹配到 frontend/backend/database/desktop_shell,体现'按需求自动组队专家'(§0/铁律②)。",
+    "示例任务是桌面应用(TerraWorks flagship 即 Tauri 桌面),非网站;desktop_shell 专长对齐这一点(M2.7 选甲:mobile→desktop_shell)。",
+    "verification 命令为契约示意(npm build/test/migrate/tauri),data-scope 不实跑;真实运行由 M2.7-3 e2e 用确定性 stub 验证按专长实例化。",
+    "本 fixture 锁 data-scope(INV-1~3:过 schema/向后兼容、匹配到多专长、专长在 roster);INV-4~7(按专长实例化/作者≠实现者/双审查/向后兼容运行)是 runtime,由 M2.7-3/4 e2e 验证。"
+  ]
+}
