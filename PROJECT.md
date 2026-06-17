@@ -79,12 +79,10 @@ terraworks/
 
 ## 当前状态
 
-- **第 0 天**，仅有骨架目录和 ARCHITECTURE.md（设计基线），无任何代码。
-- **第一个目标：M1.0 — 完成 `docs/contracts/` 下三个 schema 文件**
-  - `events.schema.json` —— 14 种事件类型（user_command / user_interact / guide_think / guide_delegate / npc_think / tool_intent / tool_done / review_request / review_verdict / verify_run / merge / hitl_request / hitl_response / error）
-  - `task_card.schema.json` —— 任务卡四要素（目标、输出格式、工具白名单、边界）+ 验证条件
-  - `verification.schema.json` —— `machine_verifiable` 强约束（command + expected exit_code + type）
-- 约束：本阶段仅产出文档与 schema，不写 Python/TypeScript/Rust 代码；README.md 保持空白，待 M1 出 demo 后再写。
+- **M1 + M2 核心已达成**：无头 Harness 可端到端 demo（分解 → test-first 多卡 → 多实例执行 → 验证 → 裁缝审查 → 退回重做 → 仲裁 merge → 崩溃续作）。详见 [README.md](README.md)。
+- 三契约 schema 已落地于 `docs/contracts/`：`events.schema.json`（**15** 种事件类型，含 ADR-011 引入的 `guide_assign`）、`task_card.schema.json`（四要素 + 验证条件 + `depends_on`）、`verification.schema.json`（`machine_verifiable` command+expected / `hitl_escalation` 二选一）。
+- View 层（M3）未开始，目前无 GUI；演示通过测试套件与日志回放 CLI 进行。
+- **进行中 / 下一步**：M2 规模化（真并行 M2.5、子进程真隔离 + merge-then-verify M2.6）列为技术债，待真实需求出现再启动；之后进 M3 像素小镇 View。
 
 ## 后续里程碑
 

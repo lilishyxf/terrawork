@@ -1,6 +1,36 @@
-<!-- README 正文待 M1 出 demo 后再写（见 PROJECT.md 当前状态）。此前仅维护「开发环境」一节。 -->
-
 # TerraWorks
+
+**游戏化的多 Agent 编排平台**：像素小镇是操作界面而非装饰——跟向导对话即下任务、点 NPC 即干预、一屏世界即系统全量健康状态。与同类（trace→动画的单向可视化）的本质区别是**双向编排**（动画 ⇄ Harness 操作闭环）。
+
+> 设计基线见 [ARCHITECTURE.md](ARCHITECTURE.md)（冻结，偏离须先提 ADR）；工程速查与红线见 [PROJECT.md](PROJECT.md)；决策记录见 [docs/adr/](docs/adr/)，契约 schema 见 [docs/contracts/](docs/contracts/)。
+
+## 当前状态（M1 + M2 核心已达成，无头 Harness 可 demo）
+
+已落地的是**纯后端 Harness**——三抽象中的 Session（仅追加事件日志）与 Sandbox（worktree 隔离）。像素小镇 View（M3）尚未开始，目前无 GUI；演示通过测试套件与日志回放 CLI 进行。
+
+当前可端到端自动跑通的闭环：
+
+```
+用户一句模糊指令
+  → Guide 分解为任务卡（test-first：测试卡 + 实现卡 depends_on 测试卡）
+  → 多实例执行（测试作者 merchant#1 ≠ 实现者 merchant#2，物理隔离 context）
+  → 验证（machine_verifiable：command + expected exit_code，验证者只执行不判断）
+  → 裁缝审查（context 硬过滤 think 事件，只看事实不看叙述）
+  → 退回重做循环（reject → 注入整改要点返工，≤ max_rework 次，超限转 HITL）
+  → Guide 仲裁 → git merge 回主干
+  → 全程仅追加日志；强杀进程后 advance() 从日志无缝续作（恢复状态不恢复思维）
+```
+
+里程碑进度（路线图见 ARCHITECTURE.md 第 12 节）：
+
+| 里程碑 | 范围 | 状态 |
+|---|---|---|
+| M1 | Session 日志 + WAL + Guide 分解委派 + 单 NPC 执行 + 验证三层 | ✅ 达成（含真实 DeepSeek live 验收） |
+| M2 核心 | 多 NPC + 裁缝审查（context 隔离）+ 退回重做 + 崩溃续作 + 多卡 test-first | ✅ 达成（§12 验收：强杀重启续作） |
+| M2 规模化 | 真并行多实例（M2.5）、子进程真隔离 + merge-then-verify（M2.6） | ⏸ 技术债，待并行/隔离的真实需求出现再启动 |
+| M3+ | 像素小镇 View / 双向交互 / 打磨发布 | ⬜ 未开始 |
+
+关键决策与偏差均记录在 [docs/adr/](docs/adr/)（如 ADR-012 同进程执行先于子进程、ADR-014 验证者读 builder worktree、ADR-015 同任务组共享 worktree 顺序执行）。
 
 ## 开发环境
 
@@ -22,19 +52,46 @@ python -m pip install -r harness/requirements-dev.txt
 ```bash
 .venv\Scripts\activate                            # 每个新终端先激活
 python -c "import jsonschema, referencing; print('ok')"
-python -m pytest harness/tests -v
 ```
 
 > 约定：文档/脚本中出现的 `python` 均指 `.venv` 内解释器（已 activate）。未激活时请用 `.venv\Scripts\python.exe` 显式指定，避免误用系统 3.13。`.venv/` 已在 `.gitignore` 中忽略，不入库。
 
 ### 复现验收
 
-日常开发安装：`pip install -r harness/requirements.txt`（给宽松上界，允许小版本升级）
-复现 M1.x 验收时安装：`pip install -r harness/requirements.lock`（精确版本，与最近一次 acceptance.md 记录的版本一致）
+- 日常开发安装：`pip install -r harness/requirements.txt`（宽松上界，允许小版本升级）
+- 复现 M1.x 验收时安装：`pip install -r harness/requirements.lock`（精确版本，与最近一次 acceptance.md 记录一致）
 
-### 离线 vs Live 回归
+## 跑测试 / 看 demo
 
-当前 `pytest harness/tests/` 默认会真调一次 DeepSeek（~18-20s，少量 token 成本），`[deepseek]` 那条 case 会从 SKIPPED 翻成 live PASSED。
+测试套件即全闭环的可执行演示，端到端覆盖上述编排环路（happy path / 崩溃续作 / 退回重做 / 多卡 test-first）。
 
-- **快速离线回归**：`pytest harness/tests/ -k "not real_guide"`（排除真实 LLM 路径，纯数据/mock，< 1s）
-- **含 live 验证**：`pytest harness/tests/`（默认，有 .env 时跑真 DeepSeek）
+```bash
+# 离线全回归（纯数据/mock，无 API 调用，秒级）
+.venv\Scripts\python.exe -m pytest harness/tests -m "not live" -q
+
+# 含 live 验收（需 .env 内 DeepSeek key，真调一次 LLM，~20s/少量 token）
+.venv\Scripts\python.exe -m pytest harness/tests
+```
+
+> `live` marker 标注需真实 LLM key 的用例（见 [pytest.ini](pytest.ini)）；离线运行用 `-m "not live"` 排除。API key 仅放入 `.env`（已 gitignored），不在命令行出现。
+
+### 回放 Session 日志
+
+Session 是唯一事实源；以下 CLI 可建库、灌事件、按因果链回放，验证"日志完整可回放"：
+
+```bash
+python -m harness.session.cli --db data/session.db init
+python -m harness.session.cli --db data/session.db dump          # 按 parent_event_id 打印因果树
+python -m harness.session.cli --db data/session.db query --type review_verdict
+```
+
+## 目录
+
+```
+harness/        Python sidecar：guide/(编排) session/(日志+WAL) context/(可见性矩阵)
+                sandbox/(worktree + 执行 + 验证 + 审查) tests/
+roles/          角色定义（用户可扩展的 .md：guide/merchant/blaster/tailor）
+docs/contracts/ events / task_card / verification 三个 JSON schema（契约）
+docs/adr/       架构决策记录
+data/           session.db、worktrees（gitignored）
+```
