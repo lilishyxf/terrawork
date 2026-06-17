@@ -108,6 +108,19 @@ def advance(
 
         elif kind == "dispatch_builder":
             d = ctx
+            # 决策 B 边界:M1 单卡流。多 builder 卡会共享 merchant#1 worktree(create_worktree
+            # 第二次 FileExistsError)。在此显式拦成清晰的 M1-scope 报错,多卡 test-first 留 M2。
+            builder_cards = [
+                e for e in events
+                if e["type"] == "guide_delegate"
+                and e["payload"]["task_card"].get("assignee_role") == "builder"
+            ]
+            if len(builder_cards) > 1:
+                raise NotImplementedError(
+                    f"M1 orchestrator supports a single builder card (decision B); "
+                    f"guide produced {len(builder_cards)} builder cards — "
+                    f"multi-card test-first orchestration deferred to M2"
+                )
             card = d["payload"]["task_card"]
             inst = ROLE_INSTANCE["builder"]
             ga = session_store.append_event(
