@@ -18,6 +18,7 @@ from pathlib import Path
 
 from harness.guide.step import guide_step
 from harness.sandbox.executor import execute_npc
+from harness.sandbox.subprocess_executor import run_npc_subprocess
 from harness.sandbox.verify_executor import verify_task
 from harness.sandbox.review_executor import review_task
 from harness.sandbox.worktree import (
@@ -168,6 +169,29 @@ def _decide(events, max_rework):
     return None
 
 
+def _run_builder(
+    npc_in_subprocess, *, inst, card, store, trigger_eid,
+    repo_root, worktrees_base, llm_client, scripted, reuse, rework_notes=None,
+):
+    """派 builder 执行:opt-in 子进程(ADR-017)或进程内(默认)。两路语义等价——
+    子进程端事件经同一 SQLite 旁路落盘,故对编排器后续读取透明。"""
+    if npc_in_subprocess:
+        run_npc_subprocess(
+            npc_instance_id=inst, task_card=card,
+            db_path=str(store.db_path), session_id=store.session_id,
+            guide_assign_event_id=trigger_eid,
+            repo_root=str(repo_root), worktrees_base=str(worktrees_base),
+            scripted_actions=scripted, reuse_worktree=reuse, rework_notes=rework_notes,
+        )
+    else:
+        execute_npc(
+            inst, card, store, trigger_eid,
+            repo_root=repo_root, worktrees_base=worktrees_base,
+            llm_client=llm_client, scripted_actions=scripted,
+            reuse_worktree=reuse, rework_notes=rework_notes,
+        )
+
+
 def advance(
     session_store,
     *,
@@ -177,6 +201,7 @@ def advance(
     builder_scripted_actions=None,
     max_steps: int = 50,
     max_rework: int = 2,
+    npc_in_subprocess: bool = False,
 ) -> dict:
     """驱动 session 到静止,返回 wake() 最终状态视图。
 
@@ -208,11 +233,11 @@ def advance(
             )
             scripted = (builder_scripted_actions or {}).get(card["task_id"])
             reuse = (worktrees_base / instance_to_slug(inst)).is_dir()
-            execute_npc(
-                inst, card, session_store, ga["event_id"],
-                repo_root=repo_root, worktrees_base=worktrees_base,
-                llm_client=llm_client, scripted_actions=scripted,
-                reuse_worktree=reuse,
+            _run_builder(
+                npc_in_subprocess, inst=inst, card=card, store=session_store,
+                trigger_eid=ga["event_id"], repo_root=repo_root,
+                worktrees_base=worktrees_base, llm_client=llm_client,
+                scripted=scripted, reuse=reuse,
             )
 
         elif kind == "finish_build":
@@ -226,11 +251,11 @@ def advance(
             inst = a["payload"]["assignee_instance"]  # 续作沿用该 assign 的实例
             wt_exists = (worktrees_base / instance_to_slug(inst)).is_dir()
             scripted = (builder_scripted_actions or {}).get(card["task_id"])
-            execute_npc(
-                inst, card, session_store, a["event_id"],
-                repo_root=repo_root, worktrees_base=worktrees_base,
-                llm_client=llm_client, scripted_actions=scripted,
-                reuse_worktree=wt_exists,
+            _run_builder(
+                npc_in_subprocess, inst=inst, card=card, store=session_store,
+                trigger_eid=a["event_id"], repo_root=repo_root,
+                worktrees_base=worktrees_base, llm_client=llm_client,
+                scripted=scripted, reuse=wt_exists,
             )
 
         elif kind == "dispatch_verifier":
@@ -304,11 +329,11 @@ def advance(
                 payload={"task_card_event_id": d["event_id"], "assignee_instance": inst},
             )
             scripted = (builder_scripted_actions or {}).get(card["task_id"])
-            execute_npc(
-                inst, card, session_store, ga["event_id"],
-                repo_root=repo_root, worktrees_base=worktrees_base,
-                llm_client=llm_client, scripted_actions=scripted,
-                reuse_worktree=True,
+            _run_builder(
+                npc_in_subprocess, inst=inst, card=card, store=session_store,
+                trigger_eid=ga["event_id"], repo_root=repo_root,
+                worktrees_base=worktrees_base, llm_client=llm_client,
+                scripted=scripted, reuse=True,
                 rework_notes=rv["payload"].get("notes"),
             )
 
