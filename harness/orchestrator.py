@@ -1,27 +1,30 @@
-"""Harness orchestration loop (M1.4-5). 驱动一个 session: user_command -> verdict。
+"""Harness orchestration loop (M1.4-5 → M2.2a). 驱动一个 session 到静止。
 
 事件驱动:每轮扫 Session 找"可行动状态",调对应组件,循环到静止(quiescent)。
-M1 单卡流(M1.4-5 决策 B):guide 分解 -> 派 builder 执行 -> 派 verifier 验证 -> Guide verdict。
-多卡 test-first 编排留 M2。
+单卡流(决策 B):guide 分解 -> 派 builder 执行 -> 派 verifier 机器验证 -> 派 tailor 代码审查
+-> Guide 仲裁(pass: merge 终态 / reject: hitl 兜底)。多卡 test-first 编排留 M2.4+。
+
+M2.2a(decision 甲):验收链从 M1 的 decide_verdict(Guide) 升级为 verify(机器) + tailor review
+(代码,隔离 context)两道独立闸 + Guide 仲裁 merge。decide_verdict 保留为无 tailor 的 M1
+简化路径(orchestrator 不再调用)。reject -> 返工循环留 M2.2b(当前暂 hitl 兜底)。
 
 组件归属:
-- LLM 组件:guide_step(分解) / execute_npc(builder 迭代)
-- 确定性组件:verify_task / decide_verdict / wake
+- LLM:guide_step(分解) / execute_npc(builder 迭代) / review_task(tailor 审查)
+- 确定性:verify_task / wake
 
-guide_step 是纯函数(返回事件、不写 store),其余组件直接 append 进 store——编排器负责把
-guide_step 的返回事件落盘(decision: 编排器桥接两种风格)。
+guide_step 是纯函数(返回事件、不写 store),编排器负责把其返回事件落盘(桥接两种风格)。
 """
 from pathlib import Path
 
 from harness.guide.step import guide_step
-from harness.guide.verdict import decide_verdict
 from harness.sandbox.executor import execute_npc
 from harness.sandbox.verify_executor import verify_task
-from harness.sandbox.worktree import instance_to_slug
+from harness.sandbox.review_executor import review_task
+from harness.sandbox.worktree import instance_to_slug, branch_name
 from harness.wake import wake
 
-# 决策②:M1 单实例 role -> instance 映射
-ROLE_INSTANCE = {"builder": "merchant#1", "verifier": "blaster#1"}
+# M1 单实例 role -> instance 映射
+ROLE_INSTANCE = {"builder": "merchant#1", "verifier": "blaster#1", "reviewer": "tailor#1"}
 
 
 def _append_guide_event(store, ev):
@@ -73,11 +76,20 @@ def _decide(events):
         if rr["type"] == "review_request" and rr["payload"]["task_id"] not in verified:
             return ("dispatch_verifier", rr)
 
-    # 4. verify_run 未裁决
-    judged = {e["payload"]["task_id"] for e in events if e["type"] == "review_verdict"}
+    # 4. verify_run 未审查(其 task 无 review_verdict)→ 派 tailor 代码审查(decision 甲)
+    reviewed = {e["payload"]["task_id"] for e in events if e["type"] == "review_verdict"}
     for vr in events:
-        if vr["type"] == "verify_run" and vr["payload"]["task_id"] not in judged:
-            return ("verdict", vr)
+        if vr["type"] == "verify_run" and vr["payload"]["task_id"] not in reviewed:
+            return ("dispatch_reviewer", vr)
+
+    # 5. review_verdict 未仲裁(其 task 无 merge 也无 hitl_request)→ Guide 仲裁
+    arbitrated = {
+        e["payload"]["task_id"] for e in events
+        if e["type"] in ("merge", "hitl_request") and "task_id" in e["payload"]
+    }
+    for rv in events:
+        if rv["type"] == "review_verdict" and rv["payload"]["task_id"] not in arbitrated:
+            return ("arbitrate", rv)
 
     return None
 
@@ -149,7 +161,38 @@ def advance(
             builder_wt = worktrees_base / instance_to_slug(ROLE_INSTANCE["builder"])
             verify_task(inst, card, builder_wt, session_store, ga["event_id"])
 
-        elif kind == "verdict":
-            decide_verdict(session_store, ctx["event_id"])
+        elif kind == "dispatch_reviewer":
+            vr = ctx
+            d = _delegate_for_task(events, vr["payload"]["task_id"])
+            card = d["payload"]["task_card"]
+            inst = ROLE_INSTANCE["reviewer"]
+            ga = session_store.append_event(
+                agent="guide", type="guide_assign", parent_event_id=vr["event_id"],
+                session_id=vr["session_id"],
+                payload={"task_card_event_id": d["event_id"], "assignee_instance": inst},
+            )
+            # tailor 在隔离事实 context 上代码审查(机器判定权威由 review_task 强制)
+            review_task(inst, card, session_store, ga["event_id"], llm_client=llm_client)
+
+        elif kind == "arbitrate":
+            rv = ctx
+            tid = rv["payload"]["task_id"]
+            if rv["payload"]["verdict"] == "pass":
+                # Guide 仲裁合并(M1 单 worktree:记录性 merge,真 git merge 留 M2.6)
+                session_store.append_event(
+                    agent="guide", type="merge", parent_event_id=rv["event_id"],
+                    session_id=rv["session_id"],
+                    payload={"task_id": tid, "source": branch_name(ROLE_INSTANCE["builder"]),
+                             "target": "main", "result": "success", "milestone": True},
+                )
+            else:
+                # M2.2a:reject 暂上抬人工;返工循环(reject -> re-dispatch builder)留 M2.2b
+                session_store.append_event(
+                    agent="guide", type="hitl_request", parent_event_id=rv["event_id"],
+                    session_id=rv["session_id"],
+                    payload={"task_id": tid,
+                             "reason": "代码审查 reject(M2.2a 暂上抬人工,返工循环留 M2.2b)",
+                             "question": f"任务 {tid} 审查未通过;notes: {rv['payload'].get('notes', '')}"},
+                )
 
     return wake(session_store, worktrees_base=worktrees_base)

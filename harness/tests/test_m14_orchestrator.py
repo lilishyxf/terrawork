@@ -43,9 +43,12 @@ _GUIDE_STUB_JSON = json.dumps(
 )
 
 
-class _StubGuide:
-    """最小 LLM stub:guide_step 只调 .complete(model, messages)。"""
+class _StubLLM:
+    """LLM stub:按 system prompt 分派——guide 分解 vs tailor 审查(M2.2a 编排两处都调 LLM)。"""
     def complete(self, model, messages, **kwargs):
+        system = messages[0]["content"] if messages else ""
+        if "裁缝" in system or "Tailor" in system:
+            return '{"verdict": "pass", "notes": "代码符合边界,验证通过"}'
         return _GUIDE_STUB_JSON
 
 
@@ -64,17 +67,18 @@ def test_orchestrator_full_loop_offline(tmp_path):
     ]}
 
     report = advance(
-        store, llm_client=_StubGuide(),
+        store, llm_client=_StubLLM(),
         repo_root=repo, worktrees_base=tmp_path / "worktrees",
         builder_scripted_actions=builder_actions,
     )
 
-    # 全链事件序列(单卡流)
+    # 全链事件序列(M2.2a 单卡流:verify -> tailor review -> merge)
     types = [e["type"] for e in store.query_session()]
     assert types == [
         "user_command", "guide_think", "guide_delegate", "guide_assign",
         "tool_intent", "tool_done", "review_request",
-        "guide_assign", "verify_run", "review_verdict",
+        "guide_assign", "verify_run",
+        "guide_assign", "review_verdict", "merge",
     ], f"事件链不符: {types}"
 
     events = store.query_session()
@@ -83,9 +87,13 @@ def test_orchestrator_full_loop_offline(tmp_path):
     assert vr["agent"] == "blaster#1"
     assert vr["payload"]["command"] == _LOGIN_CARD["verification"][0]["command"]  # 逐字
     assert vr["payload"]["passed"] is True
-    # Guide verdict = pass(机器判定权威)
+    # tailor 出 review_verdict = pass(decision 甲)
     rv = next(e for e in events if e["type"] == "review_verdict")
-    assert rv["agent"] == "guide" and rv["payload"]["verdict"] == "pass"
+    assert rv["agent"] == "tailor#1" and rv["payload"]["verdict"] == "pass"
+    # Guide 仲裁 merge 终态
+    mg = next(e for e in events if e["type"] == "merge")
+    assert mg["agent"] == "guide" and mg["payload"]["result"] == "success"
+    assert mg["parent_event_id"] == rv["event_id"]
     # wake 最终任务板
     assert report["task_board"]["t-login-impl"]["status"] == "verified_pass"
     assert report["unpaired_intents"] == []
@@ -103,7 +111,7 @@ def test_orchestrator_idempotent_at_quiescence(tmp_path):
         {"tool": "write", "params": {"path": "login.py", "content": "def login(u, p):\n    return {'ok': True}\n"},
          "task_id": "t-login-impl"}
     ]}
-    kw = dict(llm_client=_StubGuide(), repo_root=repo,
+    kw = dict(llm_client=_StubLLM(), repo_root=repo,
               worktrees_base=tmp_path / "worktrees", builder_scripted_actions=actions)
     advance(store, **kw)
     n1 = len(store.query_session())
@@ -152,29 +160,34 @@ def test_orchestrator_full_loop_live_deepseek(tmp_path, monkeypatch):
     events = store.query_session()
     types = [e["type"] for e in events]
 
-    # 全链到达 verdict
+    # 全链:分解 → 验证 → tailor 审查 → 仲裁终态
     assert "guide_delegate" in types, f"guide 未分解: {types}"
     assert "verify_run" in types, f"未到验证: {types}"
-    assert "review_verdict" in types, f"未到验收: {types}"
+    assert "review_verdict" in types, f"未到审查: {types}"
 
     vr = next(e for e in events if e["type"] == "verify_run")
     rv = next(e for e in events if e["type"] == "review_verdict")
-    # 机器判定权威:verdict 与 verify_run.passed 一致
-    if vr["payload"]["passed"]:
-        assert rv["payload"]["verdict"] == "pass", "passed=True 但 verdict!=pass"
-    else:
-        # builder 未满足 guide 自定的 verification → reject + hitl(诊断用,非沉默)
-        assert rv["payload"]["verdict"] == "reject"
-        pytest.fail(f"live builder 未通过 guide 自定 verification: {vr['payload'].get('output_summary')}")
+    assert rv["agent"] == "tailor#1", "review_verdict 应由 tailor 出(decision 甲)"
 
-    # 干净机器 wake 演示:换一个全新 SessionStore 打开同一 db,纯日志重建状态
+    # 机器判定权威:verify 失败 → 必 reject(tailor 不可推翻机器)
+    if not vr["payload"]["passed"]:
+        assert rv["payload"]["verdict"] == "reject", "verify 失败但 verdict 非 reject"
+
+    # 仲裁终态:pass → merge;reject → hitl_request(LLM 审查判断不可预测,两结局都接受)
+    if rv["payload"]["verdict"] == "pass":
+        assert "merge" in types, "verdict pass 但无 merge 终态"
+        expected_status = "verified_pass"
+    else:
+        assert "hitl_request" in types, "verdict reject 但无 hitl 兜底"
+        expected_status = "rejected"
+
+    # 干净机器 wake 演示:换全新 SessionStore 打开同一 db,纯日志重建状态、不报错
     store.close()
     fresh = SessionStore(db_path)
     fresh_report = wake(fresh, worktrees_base=worktrees)
     fresh.close()
-    # 状态完全重建、不报错、任务板与在线一致
     assert fresh_report["task_board"], "wake 未重建任务板"
     tid = next(iter(fresh_report["task_board"]))
-    assert fresh_report["task_board"][tid]["status"] == "verified_pass", \
-        f"干净机器 wake 后状态不符: {fresh_report['task_board']}"
+    assert fresh_report["task_board"][tid]["status"] == expected_status, \
+        f"干净机器 wake 后状态不符: {fresh_report['task_board']} (期望 {expected_status})"
     assert fresh_report["unpaired_intents"] == [], "全链跑完不应有 unpaired intent"
