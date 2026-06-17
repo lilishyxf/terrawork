@@ -1,0 +1,204 @@
+{
+  "id": "m14b_verify_fail",
+  "milestone": "M1.4",
+  "description": "Verdict fail 路径契约 — verify_run.passed=False 时 Guide 出 review_verdict(reject) + hitl_request 兜底(M1 不自动返工,上抬人工,返工循环留 M2)。覆盖 m14(pass)未覆盖的 fail 分支。data-scope INV 验证 fixture 自洽。",
+  "created": "2026-06-17",
+
+  "prior_context": [
+    {
+      "event_id": 1,
+      "session_id": "m14b-fixture-fail",
+      "ts": "2026-06-17T11:00:00Z",
+      "agent": "user",
+      "type": "user_command",
+      "parent_event_id": null,
+      "payload": {"text": "做个登录"}
+    },
+    {
+      "event_id": 2,
+      "session_id": "m14b-fixture-fail",
+      "ts": "2026-06-17T11:00:05Z",
+      "agent": "guide",
+      "type": "guide_think",
+      "parent_event_id": 1,
+      "payload": {"text": "拆三步:实现 / 验证 / 验收"}
+    },
+    {
+      "event_id": 3,
+      "session_id": "m14b-fixture-fail",
+      "ts": "2026-06-17T11:00:06Z",
+      "agent": "guide",
+      "type": "guide_delegate",
+      "parent_event_id": 2,
+      "payload": {
+        "task_card": {
+          "task_id": "t-login-impl",
+          "assignee_role": "builder",
+          "objective": "实现 login.py:暴露 login(username, password) -> dict;用 hashlib 哈希,不存明文。",
+          "output_format": "单文件 login.py 在 worktree 根",
+          "allowed_tools": ["read", "write", "bash"],
+          "boundaries": ["只用 Python 标准库,禁第三方包", "密码永不明文存储"],
+          "verification": [
+            {
+              "type": "machine_verifiable",
+              "command": "python -c \"from login import login; assert login('alice','secret')['ok']==True; assert login('alice','wrong')['ok']==False; print('OK')\"",
+              "expected": {"exit_code": 0, "stdout_contains": "OK"}
+            }
+          ]
+        }
+      }
+    },
+    {
+      "event_id": 4,
+      "session_id": "m14b-fixture-fail",
+      "ts": "2026-06-17T11:00:08Z",
+      "agent": "guide",
+      "type": "guide_assign",
+      "parent_event_id": 3,
+      "payload": {"task_card_event_id": 3, "assignee_instance": "merchant#1"}
+    },
+    {
+      "event_id": 5,
+      "session_id": "m14b-fixture-fail",
+      "ts": "2026-06-17T11:00:12Z",
+      "agent": "merchant#1",
+      "type": "tool_intent",
+      "parent_event_id": 4,
+      "payload": {"tool": "write", "params": {"path": "login.py"}, "task_id": "t-login-impl"}
+    },
+    {
+      "event_id": 6,
+      "session_id": "m14b-fixture-fail",
+      "ts": "2026-06-17T11:00:13Z",
+      "agent": "merchant#1",
+      "type": "tool_done",
+      "parent_event_id": 5,
+      "payload": {
+        "tool": "write",
+        "status": "ok",
+        "file": "login.py",
+        "hash": "5e884898da28047151d0e56f8dc6292773603d0d6aabbdd62a11ef721d1542d8"
+      }
+    },
+    {
+      "event_id": 7,
+      "session_id": "m14b-fixture-fail",
+      "ts": "2026-06-17T11:00:20Z",
+      "agent": "merchant#1",
+      "type": "review_request",
+      "parent_event_id": 4,
+      "payload": {
+        "task_id": "t-login-impl",
+        "reviewer": "blaster",
+        "artifact": {"files": ["login.py"], "worktree": "data/worktrees/merchant-1"}
+      }
+    }
+  ],
+
+  "trigger": {
+    "event_id": 8,
+    "session_id": "m14b-fixture-fail",
+    "ts": "2026-06-17T11:00:22Z",
+    "agent": "guide",
+    "type": "guide_assign",
+    "parent_event_id": 7,
+    "payload": {"task_card_event_id": 3, "assignee_instance": "blaster#1"}
+  },
+
+  "invariants": [
+    {
+      "id": "INV-1",
+      "name": "verify_run_failed",
+      "must": true,
+      "scope": "data",
+      "description": "fail 路径前提:存在 1 个 verify_run,passed == False(本 fixture exit_code=1)"
+    },
+    {
+      "id": "INV-2",
+      "name": "verdict_well_formed",
+      "must": true,
+      "scope": "data",
+      "description": "恰好 1 个 review_verdict;agent == 'guide';parent_event_id == verify_run.event_id;verdict ∈ {pass, reject};task_id == 任务卡 task_id"
+    },
+    {
+      "id": "INV-3",
+      "name": "machine_judgment_authority_reject",
+      "must": true,
+      "scope": "data",
+      "description": "机器判定权威(fail 向):verify_run.passed == False ⟹ verdict != 'pass'(本 fixture verdict='reject')。Guide 不得在机器判失败时给 pass"
+    },
+    {
+      "id": "INV-4",
+      "name": "hitl_fallback",
+      "must": true,
+      "scope": "data",
+      "description": "fail 兜底:恰好 1 个 hitl_request;agent == 'guide';parent_event_id == review_verdict.event_id;payload.task_id == 任务卡 task_id;reason 与 question 非空(M1 上抬人工,不自动返工)"
+    },
+    {
+      "id": "INV-5",
+      "name": "all_schemas_pass",
+      "must": true,
+      "scope": "data",
+      "description": "所有产出事件通过 events.schema.json(verify_run / review_verdict / hitl_request 各自 required 字段齐)"
+    },
+    {
+      "id": "INV-6",
+      "name": "parent_chain_strictly_backward",
+      "must": true,
+      "scope": "data",
+      "description": "所有产出事件 parent_event_id 为正整数(ADR-007),链回 trigger 或先前事件,且 parent < 自身 event_id"
+    }
+  ],
+
+  "reference_output": [
+    {
+      "event_id": 9,
+      "session_id": "m14b-fixture-fail",
+      "ts": "2026-06-17T11:00:25Z",
+      "agent": "blaster#1",
+      "type": "verify_run",
+      "parent_event_id": 8,
+      "payload": {
+        "task_id": "t-login-impl",
+        "command": "python -c \"from login import login; assert login('alice','secret')['ok']==True; assert login('alice','wrong')['ok']==False; print('OK')\"",
+        "exit_code": 1,
+        "passed": false,
+        "output_summary": "FAIL: exit_code=1, stdout=, stderr=AssertionError"
+      }
+    },
+    {
+      "event_id": 10,
+      "session_id": "m14b-fixture-fail",
+      "ts": "2026-06-17T11:00:26Z",
+      "agent": "guide",
+      "type": "review_verdict",
+      "parent_event_id": 9,
+      "payload": {
+        "task_id": "t-login-impl",
+        "reviewer": "guide",
+        "verdict": "reject",
+        "notes": "verify_run#9 failed; M1 escalates to human (no auto-rework, deferred to M2)"
+      }
+    },
+    {
+      "event_id": 11,
+      "session_id": "m14b-fixture-fail",
+      "ts": "2026-06-17T11:00:27Z",
+      "agent": "guide",
+      "type": "hitl_request",
+      "parent_event_id": 10,
+      "payload": {
+        "task_id": "t-login-impl",
+        "reason": "verification failed (verify_run#9); M1 has no auto-rework loop",
+        "question": "任务 t-login-impl 验证未通过,请人工决定返工或修正后重验。"
+      }
+    }
+  ],
+
+  "notes": [
+    "fail 路径事件链:verify_run(passed=False) → review_verdict(reject) → hitl_request。verdict.parent=verify_run(验收基于验证),hitl.parent=review_verdict(因 reject 而上抬)。",
+    "采用 option (b):review_verdict(reject) + hitl_request 各 1 条。verdict 记录机器判定(INV-3 机器权威 fail 向成立),hitl 负责 M1 不返工的人工上抬。",
+    "M1 不做自动返工循环(多轮 reject→重做留 M2);fail 即上抬人工,由人决定返工或修正。",
+    "reviewer='guide':判定权在编排者,执行权在 verifier(blaster),与 m14 pass 路径一致。"
+  ]
+}
