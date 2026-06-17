@@ -82,7 +82,8 @@ terraworks/
 - **M1 + M2 核心已达成**：无头 Harness 可端到端 demo（分解 → test-first 多卡 → 多实例执行 → 验证 → 裁缝审查 → 退回重做 → 仲裁 merge → 崩溃续作）。详见 [README.md](README.md)。
 - 三契约 schema 已落地于 `docs/contracts/`：`events.schema.json`（**15** 种事件类型，含 ADR-011 引入的 `guide_assign`）、`task_card.schema.json`（四要素 + 验证条件 + `depends_on`）、`verification.schema.json`（`machine_verifiable` command+expected / `hitl_escalation` 二选一）。
 - View 层（M3）未开始，目前无 GUI；演示通过测试套件与日志回放 CLI 进行。
-- **进行中 / 下一步**：M2 规模化（真并行 M2.5、子进程真隔离 + merge-then-verify M2.6）列为技术债，待真实需求出现再启动；之后进 M3 像素小镇 View。
+- **M2.6 真隔离已达成**（收 §1 红线 #6）：per-card 独立 worktree + 真 git merge 产物交换（ADR-016，supersede ADR-014/015）、NPC 子进程隔离（ADR-017，supersede ADR-012）。离线 67 passed。
+- **进行中 / 下一步**：M2.5 真并行（多实例并发 + `max_concurrent_agents`，翻 `npc_in_subprocess` 默认）列为技术债，待并行需求出现再启动；之后进 M3 像素小镇 View。
 
 ## 后续里程碑
 

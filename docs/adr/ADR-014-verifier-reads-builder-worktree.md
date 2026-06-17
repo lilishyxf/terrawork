@@ -1,5 +1,7 @@
 # ADR-014: M1 阶段 verifier 在 builder worktree 内只读+执行验证命令
 
+> **状态**：M1 阶段让步，已由 **ADR-016**（M2.6-A merge-then-verify）superseded——verifier 现在在独立 detached 验证 worktree 内执行，不再进 builder 的 live worktree。
+
 ## 背景
 
 ARCHITECTURE.md §1 职责红线 #3 明示："Sandbox 之间不共享可写文件系统。跨 NPC 的产物交换只通过 git merge 走 Guide 仲裁。"

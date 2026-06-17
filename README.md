@@ -27,10 +27,11 @@
 |---|---|---|
 | M1 | Session 日志 + WAL + Guide 分解委派 + 单 NPC 执行 + 验证三层 | ✅ 达成（含真实 DeepSeek live 验收） |
 | M2 核心 | 多 NPC + 裁缝审查（context 隔离）+ 退回重做 + 崩溃续作 + 多卡 test-first | ✅ 达成（§12 验收：强杀重启续作） |
-| M2 规模化 | 真并行多实例（M2.5）、子进程真隔离 + merge-then-verify（M2.6） | ⏸ 技术债，待并行/隔离的真实需求出现再启动 |
+| M2.6 真隔离 | per-card worktree + 真 git merge（红线 #6）+ merge-then-verify + NPC 子进程隔离 | ✅ 达成（ADR-016/017，离线 67 passed） |
+| M2.5 真并行 | 多实例并发 + max_concurrent_agents（翻 `npc_in_subprocess` 默认） | ⏸ 技术债，待并行需求出现再启动 |
 | M3+ | 像素小镇 View / 双向交互 / 打磨发布 | ⬜ 未开始 |
 
-关键决策与偏差均记录在 [docs/adr/](docs/adr/)（如 ADR-012 同进程执行先于子进程、ADR-014 验证者读 builder worktree、ADR-015 同任务组共享 worktree 顺序执行）。
+关键决策与偏差均记录在 [docs/adr/](docs/adr/)。M2.6 收尾了 §1 红线 #6（Sandbox 不共享可写 FS、跨 NPC 交换只走 git merge）：ADR-016（真 git merge + per-card worktree + merge-then-verify）superseded 了 ADR-014/015 的文件系统让步，ADR-017（NPC 子进程隔离）收尾了 ADR-012 的进程隔离。
 
 ## 开发环境
 

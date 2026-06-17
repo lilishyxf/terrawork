@@ -1,5 +1,7 @@
 # ADR-015: 按 task-group 共享 worktree（落地 test-first 的测试作者≠实现者）
 
+> **状态**：M2.4 阶段让步，已由 **ADR-016**（M2.6-A 真 git-merge + per-card worktree）superseded——产物改经真 git merge 经 main 流动、每卡独立 worktree，共享目录模型撤销（wake hash 比对回退随之修复）。
+
 ## 背景
 
 ADR-004 第二层 / 铁律⑧的 test-first 要求:**写测试的 NPC ≠ 写实现的 NPC**(防"实现自己说自己对"),且制作 NPC 的任务是"让已存在的测试通过"。这意味着:
