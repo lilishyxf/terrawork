@@ -46,17 +46,29 @@ def _delegate_for_task(events, task_id):
     return None
 
 
-def _decide(events):
-    """返回下一个可行动 (kind, ctx) 或 None(静止)。每个动作执行后其条件不再触发,保证收敛。"""
+def _has_later(events, after_eid, types, *, task_id=None):
+    """是否存在 event_id > after_eid、类型 ∈ types(可选 payload.task_id 匹配)的事件。"""
+    for e in events:
+        if e["event_id"] <= after_eid or e["type"] not in types:
+            continue
+        if task_id is not None and e["payload"].get("task_id") != task_id:
+            continue
+        return True
+    return False
+
+
+def _decide(events, max_rework):
+    """返回下一个可行动 (kind, ctx) 或 None(静止)。round-aware:用"无更晚配对事件"判断,
+    支持同一 task 多轮(返工)而不死循环。"""
     has_cmd = any(e["type"] == "user_command" for e in events)
     # 1. user_command 未分解(且 guide 未走 hitl 兜底)
     if has_cmd and not any(e["type"] in ("guide_delegate", "hitl_request") for e in events):
         return ("guide_decompose", next(e for e in events if e["type"] == "user_command"))
 
     assigns = [e for e in events if e["type"] == "guide_assign"]
-
-    # 2. builder 卡未派发执行(无引用它的 builder guide_assign)
     builder_inst = ROLE_INSTANCE["builder"]
+
+    # 2. builder 卡首次派发(无引用它的 builder guide_assign)。返工的重派走 stage 5。
     for d in events:
         if d["type"] != "guide_delegate":
             continue
@@ -70,26 +82,46 @@ def _decide(events):
         if not assigned:
             return ("dispatch_builder", d)
 
-    # 3. review_request 未验证(其 task 无 verify_run)
-    verified = {e["payload"]["task_id"] for e in events if e["type"] == "verify_run"}
+    # 3. review_request 之后无 verify_run → 派验证(round-aware:每轮的最新 review_request)
     for rr in events:
-        if rr["type"] == "review_request" and rr["payload"]["task_id"] not in verified:
-            return ("dispatch_verifier", rr)
+        if rr["type"] == "review_request":
+            tid = rr["payload"]["task_id"]
+            if not _has_later(events, rr["event_id"], {"verify_run"}, task_id=tid):
+                return ("dispatch_verifier", rr)
 
-    # 4. verify_run 未审查(其 task 无 review_verdict)→ 派 tailor 代码审查(decision 甲)
-    reviewed = {e["payload"]["task_id"] for e in events if e["type"] == "review_verdict"}
+    # 4. verify_run 之后无 review_verdict → 派 tailor 审查(decision 甲)
     for vr in events:
-        if vr["type"] == "verify_run" and vr["payload"]["task_id"] not in reviewed:
-            return ("dispatch_reviewer", vr)
+        if vr["type"] == "verify_run":
+            tid = vr["payload"]["task_id"]
+            if not _has_later(events, vr["event_id"], {"review_verdict"}, task_id=tid):
+                return ("dispatch_reviewer", vr)
 
-    # 5. review_verdict 未仲裁(其 task 无 merge 也无 hitl_request)→ Guide 仲裁
-    arbitrated = {
-        e["payload"]["task_id"] for e in events
-        if e["type"] in ("merge", "hitl_request") and "task_id" in e["payload"]
-    }
+    # 5. review_verdict 仲裁
     for rv in events:
-        if rv["type"] == "review_verdict" and rv["payload"]["task_id"] not in arbitrated:
-            return ("arbitrate", rv)
+        if rv["type"] != "review_verdict":
+            continue
+        tid = rv["payload"]["task_id"]
+        eid = rv["event_id"]
+        if rv["payload"]["verdict"] == "pass":
+            if not _has_later(events, eid, {"merge"}, task_id=tid):
+                return ("arbitrate_pass", rv)
+        else:  # reject
+            # 已处理:此 reject 之后已有 builder 重派(返工)或 hitl(上抬)
+            builder_redispatched = any(
+                a["payload"].get("assignee_instance") == builder_inst and a["event_id"] > eid
+                for a in assigns
+            )
+            escalated = _has_later(events, eid, {"hitl_request"}, task_id=tid)
+            if builder_redispatched or escalated:
+                continue
+            reject_count = sum(
+                1 for e in events
+                if e["type"] == "review_verdict" and e["payload"]["task_id"] == tid
+                and e["payload"]["verdict"] == "reject" and e["event_id"] <= eid
+            )
+            if reject_count <= max_rework:
+                return ("rework", rv)
+            return ("escalate_reject", rv)
 
     return None
 
@@ -102,14 +134,16 @@ def advance(
     worktrees_base: Path = Path("data/worktrees"),
     builder_scripted_actions=None,
     max_steps: int = 50,
+    max_rework: int = 2,
 ) -> dict:
     """驱动 session 到静止,返回 wake() 最终状态视图。
 
     builder_scripted_actions: {task_id: [actions]} 测试注入(离线确定性);None=live LLM builder。
+    max_rework: review reject 后重派 builder 的上限(M2.2b);超限 → hitl 兜底。
     """
     for _ in range(max_steps):
         events = session_store.query_session()
-        act = _decide(events)
+        act = _decide(events, max_rework)
         if act is None:
             break
         kind, ctx = act
@@ -174,25 +208,46 @@ def advance(
             # tailor 在隔离事实 context 上代码审查(机器判定权威由 review_task 强制)
             review_task(inst, card, session_store, ga["event_id"], llm_client=llm_client)
 
-        elif kind == "arbitrate":
+        elif kind == "arbitrate_pass":
+            rv = ctx
+            # Guide 仲裁合并(M1 单 worktree:记录性 merge,真 git merge 留 M2.6)
+            session_store.append_event(
+                agent="guide", type="merge", parent_event_id=rv["event_id"],
+                session_id=rv["session_id"],
+                payload={"task_id": rv["payload"]["task_id"],
+                         "source": branch_name(ROLE_INSTANCE["builder"]),
+                         "target": "main", "result": "success", "milestone": True},
+            )
+
+        elif kind == "rework":
+            # M2.2b:reject → 重派 builder 返工(复用 worktree,注入 reject notes),≤ max_rework 次
+            rv = ctx
+            d = _delegate_for_task(events, rv["payload"]["task_id"])
+            card = d["payload"]["task_card"]
+            inst = ROLE_INSTANCE["builder"]
+            ga = session_store.append_event(
+                agent="guide", type="guide_assign", parent_event_id=rv["event_id"],
+                session_id=rv["session_id"],
+                payload={"task_card_event_id": d["event_id"], "assignee_instance": inst},
+            )
+            scripted = (builder_scripted_actions or {}).get(card["task_id"])
+            execute_npc(
+                inst, card, session_store, ga["event_id"],
+                repo_root=repo_root, worktrees_base=worktrees_base,
+                llm_client=llm_client, scripted_actions=scripted,
+                reuse_worktree=True, rework_notes=rv["payload"].get("notes"),
+            )
+
+        elif kind == "escalate_reject":
+            # 返工次数用尽 → 上抬人工(不无限循环)
             rv = ctx
             tid = rv["payload"]["task_id"]
-            if rv["payload"]["verdict"] == "pass":
-                # Guide 仲裁合并(M1 单 worktree:记录性 merge,真 git merge 留 M2.6)
-                session_store.append_event(
-                    agent="guide", type="merge", parent_event_id=rv["event_id"],
-                    session_id=rv["session_id"],
-                    payload={"task_id": tid, "source": branch_name(ROLE_INSTANCE["builder"]),
-                             "target": "main", "result": "success", "milestone": True},
-                )
-            else:
-                # M2.2a:reject 暂上抬人工;返工循环(reject -> re-dispatch builder)留 M2.2b
-                session_store.append_event(
-                    agent="guide", type="hitl_request", parent_event_id=rv["event_id"],
-                    session_id=rv["session_id"],
-                    payload={"task_id": tid,
-                             "reason": "代码审查 reject(M2.2a 暂上抬人工,返工循环留 M2.2b)",
-                             "question": f"任务 {tid} 审查未通过;notes: {rv['payload'].get('notes', '')}"},
-                )
+            session_store.append_event(
+                agent="guide", type="hitl_request", parent_event_id=rv["event_id"],
+                session_id=rv["session_id"],
+                payload={"task_id": tid,
+                         "reason": f"返工 {max_rework} 次后审查仍 reject,上抬人工",
+                         "question": f"任务 {tid} 经 {max_rework} 轮返工仍未通过审查;notes: {rv['payload'].get('notes', '')}"},
+            )
 
     return wake(session_store, worktrees_base=worktrees_base)

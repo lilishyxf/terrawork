@@ -15,7 +15,7 @@ import json
 from datetime import datetime
 from pathlib import Path
 
-from harness.sandbox.worktree import create_worktree
+from harness.sandbox.worktree import create_worktree, instance_to_slug
 from harness.sandbox.tools import read, write, bash
 from harness.context.assemble import assemble_context_for_npc, load_role_frontmatter
 from harness.llm import get_llm_client
@@ -109,6 +109,8 @@ def execute_npc(
     llm_client=None,
     scripted_actions: list[dict] | None = None,
     max_iterations: int = 10,
+    reuse_worktree: bool = False,
+    rework_notes: str | None = None,
 ) -> None:
     """执行单 NPC 任务。M1.3 同进程实现(ADR-012)。
 
@@ -134,12 +136,19 @@ def execute_npc(
         raise ValueError(f"guide_assign event {guide_assign_event_id} not found")
     session_id = trigger["session_id"]
 
-    # 创建 worktree
-    wt_path = create_worktree(
-        npc_instance_id,
-        repo_root=repo_root,
-        base_dir=worktrees_base,
-    )
+    # worktree:首次创建;返工(reuse_worktree)复用已有(builder 在自己上轮产物上修正,M2.2b)
+    if reuse_worktree:
+        wt_path = (worktrees_base / instance_to_slug(npc_instance_id)).resolve()
+        if not wt_path.is_dir():
+            raise FileNotFoundError(
+                f"reuse_worktree=True but worktree missing: {wt_path}"
+            )
+    else:
+        wt_path = create_worktree(
+            npc_instance_id,
+            repo_root=repo_root,
+            base_dir=worktrees_base,
+        )
 
     # 收集 write 产出的 files(供 review_request.artifact 用)
     written_files: list[str] = []
@@ -191,6 +200,12 @@ def execute_npc(
             raise ValueError(f"role '{role}' frontmatter missing 'model' field")
 
         messages = assemble_context_for_npc(role, task_card)
+        if rework_notes:
+            # 返工:把上轮 reject 的整改要点注入 builder context(M2.2b)
+            messages.append({
+                "role": "user",
+                "content": f"上一轮审查被退回(reject),整改要点:\n{rework_notes}\n请据此修正后重做。",
+            })
 
         completed_normally = False
         for _iteration in range(max_iterations):
