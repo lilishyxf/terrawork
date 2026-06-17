@@ -85,3 +85,93 @@ def destroy_worktree(
             check=False,  # 分支不存在时容错
             capture_output=True,
         )
+
+
+# ---- M2.6-A: 真 git-merge 产物交换 helper(ADR-016) ----
+
+def commit_worktree(
+    instance_id: str,
+    message: str,
+    repo_root: Path = Path("."),
+    base_dir: Path = Path("data/worktrees"),
+) -> str:
+    """把 instance worktree 的全部改动提交到其分支(npc/<slug>)。
+
+    builder 完工后调用:`git add -A` + `git commit --allow-empty`(空产物也产生 commit,
+    保证分支恒有可 merge 的提交、链路不断,ADR-016 决策 2)。
+
+    Returns: 提交 SHA(40 位 hex)。
+    """
+    wt = base_dir / instance_to_slug(instance_id)
+    subprocess.run(["git", "add", "-A"], cwd=str(wt), check=True, capture_output=True)
+    subprocess.run(
+        ["git", "commit", "--allow-empty", "-m", message],
+        cwd=str(wt), check=True, capture_output=True,
+    )
+    head = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=str(wt), check=True, capture_output=True, text=True,
+    )
+    return head.stdout.strip()
+
+
+def merge_to_main(
+    instance_id: str,
+    repo_root: Path = Path("."),
+    base_branch: str = "main",
+) -> tuple[str, str | None]:
+    """在 repo_root(须 base_branch 已签出且干净)把 npc/<slug> 以 --no-ff merge 进 base_branch。
+
+    前置:repo_root 的 HEAD 是 base_branch、工作区干净(编排器主仓库恒在 main,ADR-016 决策 5)。
+
+    Returns: (result, commit)。result ∈ {"success","conflict"};success 时 commit 为
+    merge 后 HEAD 的 SHA,conflict 时为 None(已 `git merge --abort` 还原,main 不留半merge态)。
+    """
+    branch = branch_name(instance_id)
+    proc = subprocess.run(
+        ["git", "merge", "--no-ff", "-m", f"merge {branch} into {base_branch}", branch],
+        cwd=str(repo_root), capture_output=True, text=True,
+    )
+    if proc.returncode != 0:
+        # 冲突或失败:abort 还原,交由上层落 result:conflict + HITL 兜底(ADR-016 决策 5)
+        subprocess.run(["git", "merge", "--abort"], cwd=str(repo_root), capture_output=True)
+        return ("conflict", None)
+    head = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=str(repo_root), check=True, capture_output=True, text=True,
+    )
+    return ("success", head.stdout.strip())
+
+
+def add_verify_worktree(
+    instance_id: str,
+    verify_path: Path,
+    repo_root: Path = Path("."),
+) -> Path:
+    """为 merge-then-verify 创建独立验证 worktree(ADR-016 决策 4)。
+
+    `git worktree add --detach <verify_path> npc/<slug>`:detached 签出 builder 分支顶端,
+    避开"分支已在 builder worktree 签出"的限制,得到与 builder live worktree 物理分离的
+    隔离签出。verifier 在此跑验证命令,不碰 builder 的工作区。
+
+    Returns: 验证 worktree 绝对路径。
+    """
+    branch = branch_name(instance_id)
+    Path(verify_path).parent.mkdir(parents=True, exist_ok=True)
+    subprocess.run(
+        ["git", "worktree", "add", "--detach", str(verify_path), branch],
+        cwd=str(repo_root), check=True, capture_output=True,
+    )
+    return Path(verify_path).resolve()
+
+
+def remove_worktree_path(
+    worktree_path: Path,
+    repo_root: Path = Path("."),
+) -> None:
+    """按路径强制移除一个 worktree(用于验证 worktree 用后即销,ADR-016 决策 4)。"""
+    if Path(worktree_path).exists():
+        subprocess.run(
+            ["git", "worktree", "remove", "--force", str(worktree_path)],
+            cwd=str(repo_root), check=True, capture_output=True,
+        )
