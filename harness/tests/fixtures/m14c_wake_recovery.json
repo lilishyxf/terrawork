@@ -1,0 +1,42 @@
+{
+  "id": "m14c_wake_recovery",
+  "milestone": "M1.4",
+  "description": "wake(sessionId) 崩溃恢复契约(ARCHITECTURE §8)。一个 session 含两个任务:A(t-login-impl)完整跑完到 verdict pass;B(t-logout-impl)崩在工具执行中途(tool_intent #13 无配对 tool_done = unpaired)。wake 纯读重建:A=verified_pass、B=in_progress、unpaired=[13]。文件 hash 比对(reconcile|redo)属 runtime,由 e2e 测试覆盖,本 fixture 的 expected_unpaired 不含 file 状态。",
+  "created": "2026-06-17",
+
+  "session": [
+    {"event_id": 1, "session_id": "m14c-wake", "ts": "2026-06-17T12:00:00Z", "agent": "user", "type": "user_command", "parent_event_id": null, "payload": {"text": "做登录和登出"}},
+    {"event_id": 2, "session_id": "m14c-wake", "ts": "2026-06-17T12:00:05Z", "agent": "guide", "type": "guide_think", "parent_event_id": 1, "payload": {"text": "两个任务:登录 / 登出"}},
+    {"event_id": 3, "session_id": "m14c-wake", "ts": "2026-06-17T12:00:06Z", "agent": "guide", "type": "guide_delegate", "parent_event_id": 2, "payload": {"task_card": {
+      "task_id": "t-login-impl", "assignee_role": "builder", "objective": "实现 login.py", "output_format": "login.py",
+      "allowed_tools": ["read", "write", "bash"], "boundaries": ["只用标准库"],
+      "verification": [{"type": "machine_verifiable", "command": "python -c \"import login; print('OK')\"", "expected": {"exit_code": 0}}]}}},
+    {"event_id": 4, "session_id": "m14c-wake", "ts": "2026-06-17T12:00:07Z", "agent": "guide", "type": "guide_delegate", "parent_event_id": 2, "payload": {"task_card": {
+      "task_id": "t-logout-impl", "assignee_role": "builder", "objective": "实现 logout.py", "output_format": "logout.py",
+      "allowed_tools": ["read", "write", "bash"], "boundaries": ["只用标准库"],
+      "verification": [{"type": "machine_verifiable", "command": "python -c \"import logout; print('OK')\"", "expected": {"exit_code": 0}}]}}},
+    {"event_id": 5, "session_id": "m14c-wake", "ts": "2026-06-17T12:00:08Z", "agent": "guide", "type": "guide_assign", "parent_event_id": 3, "payload": {"task_card_event_id": 3, "assignee_instance": "merchant#1"}},
+    {"event_id": 6, "session_id": "m14c-wake", "ts": "2026-06-17T12:00:12Z", "agent": "merchant#1", "type": "tool_intent", "parent_event_id": 5, "payload": {"tool": "write", "params": {"path": "login.py"}, "task_id": "t-login-impl"}},
+    {"event_id": 7, "session_id": "m14c-wake", "ts": "2026-06-17T12:00:13Z", "agent": "merchant#1", "type": "tool_done", "parent_event_id": 6, "payload": {"tool": "write", "status": "ok", "file": "login.py", "hash": "5e884898da28047151d0e56f8dc6292773603d0d6aabbdd62a11ef721d1542d8"}},
+    {"event_id": 8, "session_id": "m14c-wake", "ts": "2026-06-17T12:00:20Z", "agent": "merchant#1", "type": "review_request", "parent_event_id": 5, "payload": {"task_id": "t-login-impl", "reviewer": "blaster", "artifact": {"files": ["login.py"], "worktree": "data/worktrees/merchant-1"}}},
+    {"event_id": 9, "session_id": "m14c-wake", "ts": "2026-06-17T12:00:22Z", "agent": "guide", "type": "guide_assign", "parent_event_id": 8, "payload": {"task_card_event_id": 3, "assignee_instance": "blaster#1"}},
+    {"event_id": 10, "session_id": "m14c-wake", "ts": "2026-06-17T12:00:25Z", "agent": "blaster#1", "type": "verify_run", "parent_event_id": 9, "payload": {"task_id": "t-login-impl", "command": "python -c \"import login; print('OK')\"", "exit_code": 0, "passed": true, "output_summary": "OK"}},
+    {"event_id": 11, "session_id": "m14c-wake", "ts": "2026-06-17T12:00:26Z", "agent": "guide", "type": "review_verdict", "parent_event_id": 10, "payload": {"task_id": "t-login-impl", "reviewer": "guide", "verdict": "pass", "notes": "verify_run#10 passed"}},
+
+    {"event_id": 12, "session_id": "m14c-wake", "ts": "2026-06-17T12:00:30Z", "agent": "guide", "type": "guide_assign", "parent_event_id": 4, "payload": {"task_card_event_id": 4, "assignee_instance": "merchant#2"}},
+    {"event_id": 13, "session_id": "m14c-wake", "ts": "2026-06-17T12:00:34Z", "agent": "merchant#2", "type": "tool_intent", "parent_event_id": 12, "payload": {"tool": "write", "params": {"path": "logout.py"}, "task_id": "t-logout-impl"}}
+  ],
+
+  "expected_task_board": {
+    "t-login-impl": "verified_pass",
+    "t-logout-impl": "in_progress"
+  },
+  "expected_unpaired_intent_event_ids": [13],
+
+  "notes": [
+    "崩溃点:event #13 是 merchant#2 的 write logout.py 的 tool_intent,**没有**配对 tool_done(进程在工具执行中途被杀)。这是 §8 步骤 2 要检测的 'intent 无配对 done'。",
+    "wake 纯读重建:任务板 A=verified_pass(有 review_verdict pass)、B=in_progress(已 assign 无终态);unpaired=[13]。",
+    "文件 hash 比对(reconcile vs redo)是 runtime(需真文件),由 test_m14_wake 的 e2e 用例覆盖,不在本 fixture 的 expected 内——本 fixture 只锁纯 session 重建。",
+    "wake 不写事件、不 re-dispatch(§8 步骤 4 留 M1.4-5/M2):它只产出状态视图,'恢复状态不恢复思维'。"
+  ]
+}
