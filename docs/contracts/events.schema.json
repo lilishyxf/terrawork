@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://terraworks.local/contracts/events.schema.json",
   "title": "TerraWorks Session Event",
-  "description": "Session 事件 schema（ARCHITECTURE 第 4 节）。Session 日志是唯一事实源：仅追加、永不 UPDATE/DELETE。每个改变世界的动作遵循预写规则（先 *_intent 后 *_done）。本 schema 约束单条事件的信封字段与 14 种事件类型各自的 payload 结构。注意：think 类事件（guide_think / npc_think）的可见性（对人全透明、对审查 NPC 物理隔离）由 assembleContext(role) 代码硬过滤强制，不在本 schema 内表达，schema 仅负责落盘结构。",
+  "description": "Session 事件 schema（ARCHITECTURE 第 4 节）。Session 日志是唯一事实源：仅追加、永不 UPDATE/DELETE。每个改变世界的动作遵循预写规则（先 *_intent 后 *_done）。本 schema 约束单条事件的信封字段与 15 种事件类型各自的 payload 结构。注意：think 类事件（guide_think / npc_think）的可见性（对人全透明、对审查 NPC 物理隔离）由 assembleContext(role) 代码硬过滤强制，不在本 schema 内表达，schema 仅负责落盘结构。",
   "type": "object",
   "additionalProperties": false,
   "required": ["event_id", "session_id", "ts", "agent", "type", "payload"],
@@ -45,7 +45,7 @@
         "error",
         "guide_assign"
       ],
-      "description": "14 种事件类型（v0.1 最小集 13 种 + ADR-011 增补 guide_assign）。"
+      "description": "15 种事件类型（v0.1 最小集 14 种 + ADR-011 增补 guide_assign）。"
     },
     "parent_event_id": {
       "type": ["integer", "null"],

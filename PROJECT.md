@@ -81,7 +81,7 @@ terraworks/
 
 - **第 0 天**，仅有骨架目录和 ARCHITECTURE.md（设计基线），无任何代码。
 - **第一个目标：M1.0 — 完成 `docs/contracts/` 下三个 schema 文件**
-  - `events.schema.json` —— 13 种事件类型（user_command / user_interact / guide_think / guide_delegate / npc_think / tool_intent / tool_done / review_request / review_verdict / verify_run / merge / hitl_request / hitl_response / error）
+  - `events.schema.json` —— 14 种事件类型（user_command / user_interact / guide_think / guide_delegate / npc_think / tool_intent / tool_done / review_request / review_verdict / verify_run / merge / hitl_request / hitl_response / error）
   - `task_card.schema.json` —— 任务卡四要素（目标、输出格式、工具白名单、边界）+ 验证条件
   - `verification.schema.json` —— `machine_verifiable` 强约束（command + expected exit_code + type）
 - 约束：本阶段仅产出文档与 schema，不写 Python/TypeScript/Rust 代码；README.md 保持空白，待 M1 出 demo 后再写。
