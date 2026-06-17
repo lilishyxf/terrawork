@@ -15,7 +15,7 @@ import json
 from datetime import datetime
 from pathlib import Path
 
-from harness.sandbox.worktree import create_worktree, instance_to_slug
+from harness.sandbox.worktree import create_worktree, instance_to_slug, commit_worktree
 from harness.sandbox.tools import read, write, bash
 from harness.context.assemble import assemble_context_for_npc, load_role_frontmatter
 from harness.llm import get_llm_client
@@ -111,7 +111,6 @@ def execute_npc(
     max_iterations: int = 10,
     reuse_worktree: bool = False,
     rework_notes: str | None = None,
-    worktree_key: str | None = None,
 ) -> None:
     """执行单 NPC 任务。M1.3 同进程实现(ADR-012)。
 
@@ -137,18 +136,18 @@ def execute_npc(
         raise ValueError(f"guide_assign event {guide_assign_event_id} not found")
     session_id = trigger["session_id"]
 
-    # worktree 标识:缺省按实例(向后兼容);worktree_key 指定时按 feature 共享(ADR-015,
-    # 同一 feature 不同实例共享一个 worktree 以实现 test-first 的实现者看见测试)。
-    wt_name = worktree_key or npc_instance_id
+    # worktree 按实例隔离(ADR-016 撤销 ADR-015 共享模型):merchant#1 → merchant-1。
+    # 依赖卡的产物可见性靠"依赖先 merge 进 main + 本卡 worktree 从 main 切"实现(编排器
+    # 的 depends_on 门保证次序),不再靠共享目录。
     if reuse_worktree:
-        wt_path = (worktrees_base / instance_to_slug(wt_name)).resolve()
+        wt_path = (worktrees_base / instance_to_slug(npc_instance_id)).resolve()
         if not wt_path.is_dir():
             raise FileNotFoundError(
                 f"reuse_worktree=True but worktree missing: {wt_path}"
             )
     else:
         wt_path = create_worktree(
-            wt_name,
+            npc_instance_id,
             repo_root=repo_root,
             base_dir=worktrees_base,
         )
@@ -285,6 +284,15 @@ def execute_npc(
                 f"NPC {npc_instance_id} exceeded max_iterations={max_iterations} "
                 f"without producing a completion signal (no-tool-calls response)"
             )
+
+    # 完工提交:把产物提交到本实例分支(npc/<slug>),产物=已提交分支态供 Guide 仲裁 merge
+    # (ADR-016 决策 2)。空产物 --allow-empty 也提交,保证分支恒有可 merge 提交、链路不断。
+    commit_worktree(
+        npc_instance_id,
+        f"{npc_instance_id}: {task_card['task_id']}",
+        repo_root=repo_root,
+        base_dir=worktrees_base,
+    )
 
     # 完成:落 review_request,parent 链回 trigger(guide_assign)
     session_store.append_event(

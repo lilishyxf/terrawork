@@ -20,15 +20,14 @@ from harness.guide.step import guide_step
 from harness.sandbox.executor import execute_npc
 from harness.sandbox.verify_executor import verify_task
 from harness.sandbox.review_executor import review_task
-from harness.sandbox.worktree import instance_to_slug, branch_name
+from harness.sandbox.worktree import (
+    instance_to_slug, branch_name, merge_to_main, add_verify_worktree, remove_worktree_path,
+)
 from harness.wake import wake
 
 # role -> instance 映射。verifier/reviewer M2 仍单实例;builder 多卡时按卡序分配多实例(见
 # _builder_instance),保证 test-first 测试作者≠实现者(ADR-004 / ADR-015)。
 ROLE_INSTANCE = {"builder": "merchant#1", "verifier": "blaster#1", "reviewer": "tailor#1"}
-
-# ADR-015:同一 feature 的所有 builder/verify 共享一个 worktree(M2.4 单 feature/session)。
-_FEATURE_WORKTREE_KEY = "feature#1"
 
 
 def _builder_delegates(events):
@@ -196,7 +195,9 @@ def advance(
                 _append_guide_event(session_store, ev)
 
         elif kind == "dispatch_builder":
-            # M2.4 多卡 test-first:按卡序分配不同实例(作者≠实现者),共享 feature worktree(ADR-015)。
+            # M2.4 多卡 test-first:按卡序分配不同实例(作者≠实现者)。ADR-016:每实例独立
+            # worktree(merchant-1/merchant-2),从 main 切——依赖卡因前置卡已 merge 进 main
+            # 而自带依赖产物(depends_on 门保证次序),不再共享目录。
             d = ctx
             card = d["payload"]["task_card"]
             inst = _builder_instance(events, d)
@@ -206,13 +207,12 @@ def advance(
                 payload={"task_card_event_id": d["event_id"], "assignee_instance": inst},
             )
             scripted = (builder_scripted_actions or {}).get(card["task_id"])
-            # feature worktree 首张卡创建、后续卡复用(同一共享 worktree)
-            reuse = (worktrees_base / instance_to_slug(_FEATURE_WORKTREE_KEY)).is_dir()
+            reuse = (worktrees_base / instance_to_slug(inst)).is_dir()
             execute_npc(
                 inst, card, session_store, ga["event_id"],
                 repo_root=repo_root, worktrees_base=worktrees_base,
                 llm_client=llm_client, scripted_actions=scripted,
-                worktree_key=_FEATURE_WORKTREE_KEY, reuse_worktree=reuse,
+                reuse_worktree=reuse,
             )
 
         elif kind == "finish_build":
@@ -224,13 +224,13 @@ def advance(
                      and e["event_id"] == a["payload"]["task_card_event_id"])
             card = d["payload"]["task_card"]
             inst = a["payload"]["assignee_instance"]  # 续作沿用该 assign 的实例
-            wt_exists = (worktrees_base / instance_to_slug(_FEATURE_WORKTREE_KEY)).is_dir()
+            wt_exists = (worktrees_base / instance_to_slug(inst)).is_dir()
             scripted = (builder_scripted_actions or {}).get(card["task_id"])
             execute_npc(
                 inst, card, session_store, a["event_id"],
                 repo_root=repo_root, worktrees_base=worktrees_base,
                 llm_client=llm_client, scripted_actions=scripted,
-                worktree_key=_FEATURE_WORKTREE_KEY, reuse_worktree=wt_exists,
+                reuse_worktree=wt_exists,
             )
 
         elif kind == "dispatch_verifier":
@@ -243,9 +243,15 @@ def advance(
                 session_id=rr["session_id"],
                 payload={"task_card_event_id": d["event_id"], "assignee_instance": inst},
             )
-            # ADR-014/ADR-015: verifier 在 feature 共享 worktree 内只读+执行
-            builder_wt = worktrees_base / instance_to_slug(_FEATURE_WORKTREE_KEY)
-            verify_task(inst, card, builder_wt, session_store, ga["event_id"])
+            # ADR-016 merge-then-verify(撤 ADR-014 直接进 builder worktree):把 builder
+            # 分支 detached 签出到独立验证 worktree,verifier 在隔离签出内只读+执行,用后即销。
+            builder_inst = _builder_instance(events, d)
+            verify_path = worktrees_base / f"verify-{instance_to_slug(builder_inst)}"
+            verify_wt = add_verify_worktree(builder_inst, verify_path, repo_root=repo_root)
+            try:
+                verify_task(inst, card, verify_wt, session_store, ga["event_id"])
+            finally:
+                remove_worktree_path(verify_wt, repo_root=repo_root)
 
         elif kind == "dispatch_reviewer":
             vr = ctx
@@ -262,14 +268,29 @@ def advance(
 
         elif kind == "arbitrate_pass":
             rv = ctx
-            # Guide 仲裁合并(记录性 merge,真 git merge 留 M2.6)
-            session_store.append_event(
+            tid = rv["payload"]["task_id"]
+            d = _delegate_for_task(events, tid)
+            builder_inst = _builder_instance(events, d)
+            # ADR-016 决策 5:Guide 仲裁跑真 git merge --no-ff 到 main,填真实 commit hash。
+            result, commit = merge_to_main(builder_inst, repo_root=repo_root)
+            payload = {"task_id": tid, "source": branch_name(builder_inst),
+                       "target": "main", "result": result}
+            if result == "success":
+                payload["commit"] = commit
+                payload["milestone"] = True
+            merge_ev = session_store.append_event(
                 agent="guide", type="merge", parent_event_id=rv["event_id"],
-                session_id=rv["session_id"],
-                payload={"task_id": rv["payload"]["task_id"],
-                         "source": branch_name(_FEATURE_WORKTREE_KEY),
-                         "target": "main", "result": "success", "milestone": True},
+                session_id=rv["session_id"], payload=payload,
             )
+            if result == "conflict":
+                # 冲突不自动消解 → 落 merge(conflict) 后转 HITL 兜底(ADR-016 决策 5)
+                session_store.append_event(
+                    agent="guide", type="hitl_request", parent_event_id=merge_ev["event_id"],
+                    session_id=rv["session_id"],
+                    payload={"task_id": tid,
+                             "reason": f"git merge {branch_name(builder_inst)} → main 冲突,需人工消解",
+                             "question": f"任务 {tid} 合并到 main 出现冲突,请人工解决后继续。"},
+                )
 
         elif kind == "rework":
             # M2.2b:reject → 重派同一卡的 builder 返工(复用 feature worktree,注入 reject notes)
@@ -287,7 +308,7 @@ def advance(
                 inst, card, session_store, ga["event_id"],
                 repo_root=repo_root, worktrees_base=worktrees_base,
                 llm_client=llm_client, scripted_actions=scripted,
-                worktree_key=_FEATURE_WORKTREE_KEY, reuse_worktree=True,
+                reuse_worktree=True,
                 rework_notes=rv["payload"].get("notes"),
             )
 
