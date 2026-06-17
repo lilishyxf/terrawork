@@ -44,7 +44,7 @@
 - **bash denylist is regex-based**: defense-in-depth against LLM accidents, not adversarial containment. Acceptable for M1.x trust model (user runs locally; sandbox is per-NPC worktree isolation). OS-level isolation deferred to M2 (ADR-012) + future ADR-013-candidate.
 - **Verification not yet executed authoritatively**: review_request is emitted but no verifier consumes task_card.verification[] commands yet. The merchant's own bash self-check is dev feedback, NOT the verification gate. M1.4 closes this loop.
 - **ADR-013 implementation gap**: `domain` and `specialty` frontmatter fields are defined (ADR-013) but the role loader does not yet consume them; tool whitelist by domain is not enforced. Deferred to M2 with assignment routing.
-- **Test marker convention not unified**: m13 live test uses `@pytest.mark.live` (with skipif on DEEPSEEK_API_KEY), but m12 `test_real_guide_satisfies_invariants_per_provider` uses only `skipif-on-key` without the `live` mark. Consequently `-m "not live"` does not exclude m12 live calls when keys are configured. Use `-k "not real_guide and not live"` for true offline runs until marker convention is unified (small chore commit, deferred). The `live` marker is also unregistered (PytestUnknownMarkWarning); registering it is part of the same deferred chore.
+- **Test marker convention not unified** — ✅ **Closed (c87fc98)**: registered the `live` marker in root `pytest.ini` and tagged m12 `test_real_guide_satisfies_invariants_per_provider` with `@pytest.mark.live`. True offline runs now use `-m "not live"` (replacing the interim `-k "not real_guide and not live"`); the PytestUnknownMarkWarning is cleared.
 
 ## Next: M1.4 — Verification Condition Executor
 

@@ -179,7 +179,7 @@ def test_real_guide_satisfies_invariants_per_provider(provider_model, monkeypatc
 
     跑法:
       - 默认 `pytest harness/tests/`: 每家 provider 一个 case,有 key 的跑、没 key 的 skip
-      - 排除真实 LLM 测试: `pytest harness/tests/ -k "not real_guide"`
+      - 排除真实 LLM 测试: `pytest harness/tests/ -m "not live"`
       - 只跑某一家:        `pytest harness/tests/ -k "real_guide and deepseek"`
     """
     from harness.guide import guide_step
