@@ -82,6 +82,20 @@ def _decide(events, max_rework):
         if not assigned:
             return ("dispatch_builder", d)
 
+    # 2.5 崩溃续作(M2.3):builder 已派但构建未完成(其后无 review_request)→ 续作该 builder。
+    # 正常单步内 dispatch_builder 会同步产出 review_request,故此阶段只在跨进程崩溃重启时触发。
+    for a in assigns:
+        if a["payload"].get("assignee_instance") != builder_inst:
+            continue
+        tce = a["payload"].get("task_card_event_id")
+        d = next((e for e in events
+                  if e["type"] == "guide_delegate" and e["event_id"] == tce), None)
+        if d is None:
+            continue
+        tid = d["payload"]["task_card"]["task_id"]
+        if not _has_later(events, a["event_id"], {"review_request"}, task_id=tid):
+            return ("finish_build", a)
+
     # 3. review_request 之后无 verify_run → 派验证(round-aware:每轮的最新 review_request)
     for rr in events:
         if rr["type"] == "review_request":
@@ -179,6 +193,24 @@ def advance(
                 inst, card, session_store, ga["event_id"],
                 repo_root=repo_root, worktrees_base=worktrees_base,
                 llm_client=llm_client, scripted_actions=scripted,
+            )
+
+        elif kind == "finish_build":
+            # 崩溃续作:用既有的 builder guide_assign 重跑 execute_npc,补出缺失的 review_request。
+            # worktree 可能已建(崩在 create 之后)或未建(崩在 create 之前)→ 据实 reuse/create。
+            a = ctx
+            d = next(e for e in events
+                     if e["type"] == "guide_delegate"
+                     and e["event_id"] == a["payload"]["task_card_event_id"])
+            card = d["payload"]["task_card"]
+            inst = ROLE_INSTANCE["builder"]
+            wt_exists = (worktrees_base / instance_to_slug(inst)).is_dir()
+            scripted = (builder_scripted_actions or {}).get(card["task_id"])
+            execute_npc(
+                inst, card, session_store, a["event_id"],
+                repo_root=repo_root, worktrees_base=worktrees_base,
+                llm_client=llm_client, scripted_actions=scripted,
+                reuse_worktree=wt_exists,
             )
 
         elif kind == "dispatch_verifier":
