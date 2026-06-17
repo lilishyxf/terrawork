@@ -1,0 +1,100 @@
+{
+  "id": "m25_parallel_independent",
+  "milestone": "M2.5",
+  "description": "并行多实例分解契约(ADR-018)。Guide 把一个可并行的需求拆成两张互不依赖的 builder 卡(两个独立模块:stringutil / mathutil),二者无 depends_on、verification 互不引用 → 同时 ready → 编排器并行批派发(各自实例/worktree/子进程并发执行)。本 fixture 锁分解结构(data-scope);并发派发/真并行/max_concurrent 由 e2e(M2.5-2)验证。",
+  "created": "2026-06-17",
+
+  "trigger": {
+    "event_id": 1,
+    "session_id": "m25-parallel",
+    "ts": "2026-06-17T16:00:00Z",
+    "agent": "user",
+    "type": "user_command",
+    "parent_event_id": null,
+    "payload": {"text": "搭两个互不依赖的工具模块:字符串工具和数学工具"}
+  },
+
+  "prior_context": [],
+
+  "invariants": [
+    {"id": "INV-1", "name": "two_independent_cards", "must": true, "scope": "data",
+     "description": "分解出恰好 2 张 assignee_role=builder 的卡,且互不依赖(均无 depends_on、不互相引用对方 task_id)"},
+    {"id": "INV-2", "name": "independent_verification", "must": true, "scope": "data",
+     "description": "每卡 verification 只验自身产物(stringutil 卡验 import stringutil、mathutil 卡验 import mathutil),互不引用"},
+    {"id": "INV-3", "name": "cards_pass_schema", "must": true, "scope": "data",
+     "description": "两张任务卡均通过 task_card.schema.json"},
+    {"id": "INV-4", "name": "concurrent_batch_dispatch", "must": true, "scope": "runtime",
+     "description": "两卡在同一并行批派发(两个 builder guide_assign 在任一卡的 review_request 之前成对出现)。e2e 验证。"},
+    {"id": "INV-5", "name": "both_merge", "must": true, "scope": "runtime",
+     "description": "两卡都 verified_pass + 真 merge 到 main。e2e 验证。"},
+    {"id": "INV-6", "name": "actual_parallelism", "must": true, "scope": "runtime",
+     "description": "计时证据:各 builder 含 ~1s 阻塞工作时,墙钟 < 顺序耗时(并发证据)。e2e 验证。"},
+    {"id": "INV-7", "name": "max_concurrent_respected", "must": true, "scope": "runtime",
+     "description": "同时活跃子进程数不超 max_concurrent_agents(ADR-005 默认 10)。e2e 验证。"}
+  ],
+
+  "reference_output": [
+    {
+      "event_id": 2,
+      "session_id": "m25-parallel",
+      "ts": "2026-06-17T16:00:05Z",
+      "agent": "guide",
+      "type": "guide_think",
+      "parent_event_id": 1,
+      "payload": {"text": "两个模块互不依赖 → 拆两张独立 builder 卡,可并行执行(无 depends_on)。"}
+    },
+    {
+      "event_id": 3,
+      "session_id": "m25-parallel",
+      "ts": "2026-06-17T16:00:06Z",
+      "agent": "guide",
+      "type": "guide_delegate",
+      "parent_event_id": 2,
+      "payload": {
+        "task_card": {
+          "task_id": "t-stringutil",
+          "assignee_role": "builder",
+          "objective": "实现 stringutil.py:提供 slugify(s) -> str(小写、空格转连字符)。只用标准库。",
+          "output_format": "stringutil.py 在 worktree 根",
+          "allowed_tools": ["read", "write", "bash"],
+          "boundaries": ["只写 stringutil.py,不碰其他模块", "只用 Python 标准库"],
+          "verification": [
+            {"type": "machine_verifiable",
+             "command": "python -c \"import stringutil; assert stringutil.slugify('A B')=='a-b'\"",
+             "expected": {"exit_code": 0}}
+          ]
+        }
+      }
+    },
+    {
+      "event_id": 4,
+      "session_id": "m25-parallel",
+      "ts": "2026-06-17T16:00:07Z",
+      "agent": "guide",
+      "type": "guide_delegate",
+      "parent_event_id": 2,
+      "payload": {
+        "task_card": {
+          "task_id": "t-mathutil",
+          "assignee_role": "builder",
+          "objective": "实现 mathutil.py:提供 gcd(a, b) -> int(最大公约数)。只用标准库。",
+          "output_format": "mathutil.py 在 worktree 根",
+          "allowed_tools": ["read", "write", "bash"],
+          "boundaries": ["只写 mathutil.py,不碰其他模块", "只用 Python 标准库"],
+          "verification": [
+            {"type": "machine_verifiable",
+             "command": "python -c \"import mathutil; assert mathutil.gcd(12, 8)==4\"",
+             "expected": {"exit_code": 0}}
+          ]
+        }
+      }
+    }
+  ],
+
+  "notes": [
+    "两卡均 assignee_role=builder 且无 depends_on → 同时 ready → 并行批派发(INV-4);各自分到 merchant#1/merchant#2、独立 worktree、独立子进程并发执行(ADR-018)。",
+    "与 m2d(test-first 顺序多卡,impl depends_on tests)正相反:此处是互不依赖的并行多卡。两种多卡形态并存,编排器据 depends_on 是否满足决定顺序还是并行。",
+    "verification 各验自身模块行为(slugify / gcd),互不引用对方 → 物理独立,可任意顺序/并发完成(INV-2)。",
+    "本 fixture 锁 data-scope 分解结构(INV-1~3);并发派发/真并行计时/max_concurrent(INV-4~7)是 runtime,由 M2.5-2 e2e 验证。"
+  ]
+}
