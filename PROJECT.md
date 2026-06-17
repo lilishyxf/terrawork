@@ -83,7 +83,8 @@ terraworks/
 - 三契约 schema 已落地于 `docs/contracts/`：`events.schema.json`（**15** 种事件类型，含 ADR-011 引入的 `guide_assign`）、`task_card.schema.json`（四要素 + 验证条件 + `depends_on`）、`verification.schema.json`（`machine_verifiable` command+expected / `hitl_escalation` 二选一）。
 - View 层（M3）未开始，目前无 GUI；演示通过测试套件与日志回放 CLI 进行。
 - **M2.6 真隔离已达成**（收 §1 红线 #6）：per-card 独立 worktree + 真 git merge 产物交换（ADR-016，supersede ADR-014/015）、NPC 子进程隔离（ADR-017，supersede ADR-012）。离线 67 passed。
-- **进行中 / 下一步**：M2.5 真并行（多实例并发 + `max_concurrent_agents`，翻 `npc_in_subprocess` 默认）列为技术债，待并行需求出现再启动；之后进 M3 像素小镇 View。
+- **M2.5 真并行已达成**（ADR-018）：互不依赖的多卡并发批派发（独立 worktree + 子进程 + `max_concurrent_agents`，计时实证真并发）。**M1 + M2 全部完成。**
+- **下一步**：M3 像素小镇 View（Phaser 渲染 + 状态-动画协议 + catch-up/live 订阅）——把无头 Harness 变成游戏化双向编排产品。
 
 ## 后续里程碑
 

@@ -4,7 +4,7 @@
 
 > 设计基线见 [ARCHITECTURE.md](ARCHITECTURE.md)（冻结，偏离须先提 ADR）；工程速查与红线见 [PROJECT.md](PROJECT.md)；决策记录见 [docs/adr/](docs/adr/)，契约 schema 见 [docs/contracts/](docs/contracts/)。
 
-## 当前状态（M1 + M2 核心已达成，无头 Harness 可 demo）
+## 当前状态（M1 + M2 全部达成，无头 Harness 可 demo）
 
 已落地的是**纯后端 Harness**——三抽象中的 Session（仅追加事件日志）与 Sandbox（worktree 隔离）。像素小镇 View（M3）尚未开始，目前无 GUI；演示通过测试套件与日志回放 CLI 进行。
 
@@ -28,7 +28,7 @@
 | M1 | Session 日志 + WAL + Guide 分解委派 + 单 NPC 执行 + 验证三层 | ✅ 达成（含真实 DeepSeek live 验收） |
 | M2 核心 | 多 NPC + 裁缝审查（context 隔离）+ 退回重做 + 崩溃续作 + 多卡 test-first | ✅ 达成（§12 验收：强杀重启续作） |
 | M2.6 真隔离 | per-card worktree + 真 git merge（红线 #6）+ merge-then-verify + NPC 子进程隔离 | ✅ 达成（ADR-016/017，离线 67 passed） |
-| M2.5 真并行 | 多实例并发 + max_concurrent_agents（翻 `npc_in_subprocess` 默认） | ⏸ 技术债，待并行需求出现再启动 |
+| M2.5 真并行 | 多实例并发执行（独立卡）+ `max_concurrent_agents` | ✅ 达成（ADR-018，计时实证并发，70 passed） |
 | M3+ | 像素小镇 View / 双向交互 / 打磨发布 | ⬜ 未开始 |
 
 关键决策与偏差均记录在 [docs/adr/](docs/adr/)。M2.6 收尾了 §1 红线 #6（Sandbox 不共享可写 FS、跨 NPC 交换只走 git merge）：ADR-016（真 git merge + per-card worktree + merge-then-verify）superseded 了 ADR-014/015 的文件系统让步，ADR-017（NPC 子进程隔离）收尾了 ADR-012 的进程隔离。
