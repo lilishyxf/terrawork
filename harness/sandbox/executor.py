@@ -111,6 +111,7 @@ def execute_npc(
     max_iterations: int = 10,
     reuse_worktree: bool = False,
     rework_notes: str | None = None,
+    worktree_key: str | None = None,
 ) -> None:
     """执行单 NPC 任务。M1.3 同进程实现(ADR-012)。
 
@@ -136,16 +137,18 @@ def execute_npc(
         raise ValueError(f"guide_assign event {guide_assign_event_id} not found")
     session_id = trigger["session_id"]
 
-    # worktree:首次创建;返工(reuse_worktree)复用已有(builder 在自己上轮产物上修正,M2.2b)
+    # worktree 标识:缺省按实例(向后兼容);worktree_key 指定时按 feature 共享(ADR-015,
+    # 同一 feature 不同实例共享一个 worktree 以实现 test-first 的实现者看见测试)。
+    wt_name = worktree_key or npc_instance_id
     if reuse_worktree:
-        wt_path = (worktrees_base / instance_to_slug(npc_instance_id)).resolve()
+        wt_path = (worktrees_base / instance_to_slug(wt_name)).resolve()
         if not wt_path.is_dir():
             raise FileNotFoundError(
                 f"reuse_worktree=True but worktree missing: {wt_path}"
             )
     else:
         wt_path = create_worktree(
-            npc_instance_id,
+            wt_name,
             repo_root=repo_root,
             base_dir=worktrees_base,
         )

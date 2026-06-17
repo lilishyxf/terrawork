@@ -87,10 +87,10 @@ def test_rework_exhausted_escalates_to_hitl(tmp_path):
 
 
 def test_rework_builds_in_reused_worktree(tmp_path):
-    """返工不因 worktree 已存在而崩(reuse_worktree 生效);单 worktree 始终是 merchant-1。"""
+    """返工不因 worktree 已存在而崩(reuse 生效);单卡 feature 共享 worktree(ADR-015,feature-1)。"""
     store, _ = _run(tmp_path, tailor_verdicts=["reject", "pass"])
-    wt = tmp_path / "worktrees" / "merchant-1"
+    wt = tmp_path / "worktrees" / "feature-1"
     assert wt.is_dir() and (wt / ".git").exists()
-    # 只有一个 builder worktree 目录(返工复用,未另建)
+    # 只有一个共享 worktree 目录(初始+返工复用,未另建)
     others = [p for p in (tmp_path / "worktrees").iterdir() if p.is_dir()]
     assert others == [wt], f"返工应复用单一 worktree,实际 {others}"

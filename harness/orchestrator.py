@@ -23,8 +23,34 @@ from harness.sandbox.review_executor import review_task
 from harness.sandbox.worktree import instance_to_slug, branch_name
 from harness.wake import wake
 
-# M1 单实例 role -> instance 映射
+# role -> instance 映射。verifier/reviewer M2 仍单实例;builder 多卡时按卡序分配多实例(见
+# _builder_instance),保证 test-first 测试作者≠实现者(ADR-004 / ADR-015)。
 ROLE_INSTANCE = {"builder": "merchant#1", "verifier": "blaster#1", "reviewer": "tailor#1"}
+
+# ADR-015:同一 feature 的所有 builder/verify 共享一个 worktree(M2.4 单 feature/session)。
+_FEATURE_WORKTREE_KEY = "feature#1"
+
+
+def _builder_delegates(events):
+    return sorted(
+        [e for e in events if e["type"] == "guide_delegate"
+         and e["payload"]["task_card"].get("assignee_role") == "builder"],
+        key=lambda e: e["event_id"],
+    )
+
+
+def _builder_instance(events, delegate):
+    """按 builder 卡出现顺序稳定分配实例:第 i 张 → merchant#(i+1)。
+    test-first 中测试卡(第1张)→ merchant#1、实现卡(第2张)→ merchant#2,作者≠实现者。"""
+    bds = _builder_delegates(events)
+    idx = next(i for i, e in enumerate(bds) if e["event_id"] == delegate["event_id"])
+    return f"merchant#{idx + 1}"
+
+
+def _deps_satisfied(events, task_card):
+    """task_card.depends_on 的每个 task_id 都已 merge(完成)。"""
+    merged = {e["payload"]["task_id"] for e in events if e["type"] == "merge"}
+    return all(dep in merged for dep in task_card.get("depends_on", []))
 
 
 def _append_guide_event(store, ev):
@@ -66,26 +92,26 @@ def _decide(events, max_rework):
         return ("guide_decompose", next(e for e in events if e["type"] == "user_command"))
 
     assigns = [e for e in events if e["type"] == "guide_assign"]
-    builder_inst = ROLE_INSTANCE["builder"]
+    builder_insts = {f"merchant#{i + 1}" for i in range(len(_builder_delegates(events)))}
 
-    # 2. builder 卡首次派发(无引用它的 builder guide_assign)。返工的重派走 stage 5。
-    for d in events:
-        if d["type"] != "guide_delegate":
-            continue
-        if d["payload"]["task_card"].get("assignee_role") != "builder":
-            continue
+    # 2. builder 卡首次派发:无引用它的 builder guide_assign,且 depends_on 已满足(test-first
+    #    实现卡在测试卡 merge 后才派)。返工的重派走 stage 5。
+    for d in _builder_delegates(events):
+        inst = _builder_instance(events, d)
         assigned = any(
             a["payload"].get("task_card_event_id") == d["event_id"]
-            and a["payload"].get("assignee_instance") == builder_inst
+            and a["payload"].get("assignee_instance") == inst
             for a in assigns
         )
-        if not assigned:
-            return ("dispatch_builder", d)
+        if assigned:
+            continue
+        if not _deps_satisfied(events, d["payload"]["task_card"]):
+            continue  # 前置卡未完成,暂不派(依赖排序)
+        return ("dispatch_builder", d)
 
     # 2.5 崩溃续作(M2.3):builder 已派但构建未完成(其后无 review_request)→ 续作该 builder。
-    # 正常单步内 dispatch_builder 会同步产出 review_request,故此阶段只在跨进程崩溃重启时触发。
     for a in assigns:
-        if a["payload"].get("assignee_instance") != builder_inst:
+        if a["payload"].get("assignee_instance") not in builder_insts:
             continue
         tce = a["payload"].get("task_card_event_id")
         d = next((e for e in events
@@ -120,9 +146,12 @@ def _decide(events, max_rework):
             if not _has_later(events, eid, {"merge"}, task_id=tid):
                 return ("arbitrate_pass", rv)
         else:  # reject
-            # 已处理:此 reject 之后已有 builder 重派(返工)或 hitl(上抬)
-            builder_redispatched = any(
-                a["payload"].get("assignee_instance") == builder_inst and a["event_id"] > eid
+            # 已处理:此 reject 之后已有"该 task 的 builder 重派"(返工)或 hitl(上抬)
+            d = _delegate_for_task(events, tid)
+            builder_redispatched = d is not None and any(
+                a["payload"].get("task_card_event_id") == d["event_id"]
+                and a["payload"].get("assignee_instance") in builder_insts
+                and a["event_id"] > eid
                 for a in assigns
             )
             escalated = _has_later(events, eid, {"hitl_request"}, task_id=tid)
@@ -167,32 +196,23 @@ def advance(
                 _append_guide_event(session_store, ev)
 
         elif kind == "dispatch_builder":
+            # M2.4 多卡 test-first:按卡序分配不同实例(作者≠实现者),共享 feature worktree(ADR-015)。
             d = ctx
-            # 决策 B 边界:M1 单卡流。多 builder 卡会共享 merchant#1 worktree(create_worktree
-            # 第二次 FileExistsError)。在此显式拦成清晰的 M1-scope 报错,多卡 test-first 留 M2。
-            builder_cards = [
-                e for e in events
-                if e["type"] == "guide_delegate"
-                and e["payload"]["task_card"].get("assignee_role") == "builder"
-            ]
-            if len(builder_cards) > 1:
-                raise NotImplementedError(
-                    f"M1 orchestrator supports a single builder card (decision B); "
-                    f"guide produced {len(builder_cards)} builder cards — "
-                    f"multi-card test-first orchestration deferred to M2"
-                )
             card = d["payload"]["task_card"]
-            inst = ROLE_INSTANCE["builder"]
+            inst = _builder_instance(events, d)
             ga = session_store.append_event(
                 agent="guide", type="guide_assign", parent_event_id=d["event_id"],
                 session_id=d["session_id"],
                 payload={"task_card_event_id": d["event_id"], "assignee_instance": inst},
             )
             scripted = (builder_scripted_actions or {}).get(card["task_id"])
+            # feature worktree 首张卡创建、后续卡复用(同一共享 worktree)
+            reuse = (worktrees_base / instance_to_slug(_FEATURE_WORKTREE_KEY)).is_dir()
             execute_npc(
                 inst, card, session_store, ga["event_id"],
                 repo_root=repo_root, worktrees_base=worktrees_base,
                 llm_client=llm_client, scripted_actions=scripted,
+                worktree_key=_FEATURE_WORKTREE_KEY, reuse_worktree=reuse,
             )
 
         elif kind == "finish_build":
@@ -203,14 +223,14 @@ def advance(
                      if e["type"] == "guide_delegate"
                      and e["event_id"] == a["payload"]["task_card_event_id"])
             card = d["payload"]["task_card"]
-            inst = ROLE_INSTANCE["builder"]
-            wt_exists = (worktrees_base / instance_to_slug(inst)).is_dir()
+            inst = a["payload"]["assignee_instance"]  # 续作沿用该 assign 的实例
+            wt_exists = (worktrees_base / instance_to_slug(_FEATURE_WORKTREE_KEY)).is_dir()
             scripted = (builder_scripted_actions or {}).get(card["task_id"])
             execute_npc(
                 inst, card, session_store, a["event_id"],
                 repo_root=repo_root, worktrees_base=worktrees_base,
                 llm_client=llm_client, scripted_actions=scripted,
-                reuse_worktree=wt_exists,
+                worktree_key=_FEATURE_WORKTREE_KEY, reuse_worktree=wt_exists,
             )
 
         elif kind == "dispatch_verifier":
@@ -223,8 +243,8 @@ def advance(
                 session_id=rr["session_id"],
                 payload={"task_card_event_id": d["event_id"], "assignee_instance": inst},
             )
-            # ADR-014: verifier 在 builder 的 worktree 内只读+执行
-            builder_wt = worktrees_base / instance_to_slug(ROLE_INSTANCE["builder"])
+            # ADR-014/ADR-015: verifier 在 feature 共享 worktree 内只读+执行
+            builder_wt = worktrees_base / instance_to_slug(_FEATURE_WORKTREE_KEY)
             verify_task(inst, card, builder_wt, session_store, ga["event_id"])
 
         elif kind == "dispatch_reviewer":
@@ -242,21 +262,21 @@ def advance(
 
         elif kind == "arbitrate_pass":
             rv = ctx
-            # Guide 仲裁合并(M1 单 worktree:记录性 merge,真 git merge 留 M2.6)
+            # Guide 仲裁合并(记录性 merge,真 git merge 留 M2.6)
             session_store.append_event(
                 agent="guide", type="merge", parent_event_id=rv["event_id"],
                 session_id=rv["session_id"],
                 payload={"task_id": rv["payload"]["task_id"],
-                         "source": branch_name(ROLE_INSTANCE["builder"]),
+                         "source": branch_name(_FEATURE_WORKTREE_KEY),
                          "target": "main", "result": "success", "milestone": True},
             )
 
         elif kind == "rework":
-            # M2.2b:reject → 重派 builder 返工(复用 worktree,注入 reject notes),≤ max_rework 次
+            # M2.2b:reject → 重派同一卡的 builder 返工(复用 feature worktree,注入 reject notes)
             rv = ctx
             d = _delegate_for_task(events, rv["payload"]["task_id"])
             card = d["payload"]["task_card"]
-            inst = ROLE_INSTANCE["builder"]
+            inst = _builder_instance(events, d)  # 同一卡 → 同一实例(稳定)
             ga = session_store.append_event(
                 agent="guide", type="guide_assign", parent_event_id=rv["event_id"],
                 session_id=rv["session_id"],
@@ -267,7 +287,8 @@ def advance(
                 inst, card, session_store, ga["event_id"],
                 repo_root=repo_root, worktrees_base=worktrees_base,
                 llm_client=llm_client, scripted_actions=scripted,
-                reuse_worktree=True, rework_notes=rv["payload"].get("notes"),
+                worktree_key=_FEATURE_WORKTREE_KEY, reuse_worktree=True,
+                rework_notes=rv["payload"].get("notes"),
             )
 
         elif kind == "escalate_reject":
