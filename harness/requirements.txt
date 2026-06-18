@@ -6,3 +6,5 @@ referencing>=0.30
 litellm  # LLM provider 抽象层 (ADR-009)
 pyyaml  # roles/*.md frontmatter parsing
 python-dotenv  # .env loading for live LLM tests
+fastapi>=0.115  # M3-2 View 事件服务 (ADR-021, §10 sidecar)
+uvicorn[standard]>=0.30  # ASGI server (含 websockets)，运行 View API
