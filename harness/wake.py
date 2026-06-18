@@ -33,6 +33,7 @@ def wake(session_store, worktrees_base: Path = Path("data/worktrees"), session_i
     assigns = [e for e in events if e["type"] == "guide_assign"]
     verdicts = [e for e in events if e["type"] == "review_verdict"]
     hitls = [e for e in events if e["type"] == "hitl_request"]
+    merges = [e for e in events if e["type"] == "merge"]
     intents = [e for e in events if e["type"] == "tool_intent"]
     dones = [e for e in events if e["type"] == "tool_done"]
 
@@ -43,6 +44,9 @@ def wake(session_store, worktrees_base: Path = Path("data/worktrees"), session_i
         assigned = any(
             a["payload"].get("task_card_event_id") == de["event_id"] for a in assigns
         )
+        merged = any(m["payload"].get("task_id") == tid
+                     and m["payload"].get("result") == "success" for m in merges)
+        escalated = any(h["payload"].get("task_id") == tid for h in hitls)
         v_pass = any(
             v["payload"]["task_id"] == tid and v["payload"]["verdict"] == "pass"
             for v in verdicts
@@ -51,11 +55,17 @@ def wake(session_store, worktrees_base: Path = Path("data/worktrees"), session_i
             v["payload"]["task_id"] == tid and v["payload"]["verdict"] == "reject"
             for v in verdicts
         )
-        escalated = any(h["payload"].get("task_id") == tid for h in hitls)
 
-        if v_pass:
+        # 终态信号优先(双审查 ADR-019):merge=确定通过、hitl=确定上抬,二者凌驾单条 verdict
+        # (双审查下 appsec 缺省 pass 会留下 pass verdict,但聚合可能 reject→hitl)。
+        # 无 merge/hitl 时回退到 verdict(兼容 M1.x 无 merge 的旧流)。
+        if merged:
             status = "verified_pass"
-        elif v_reject or escalated:
+        elif escalated:
+            status = "rejected"
+        elif v_pass:
+            status = "verified_pass"
+        elif v_reject:
             status = "rejected"
         elif assigned:
             status = "in_progress"

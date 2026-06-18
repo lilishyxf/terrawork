@@ -63,8 +63,9 @@ def _instances_by_tid(events):
         if a["type"] != "guide_assign":
             continue
         for tid, deid in de.items():
+            # 只取 builder 实例;排除 verifier/双 reviewer(blaster/tailor/appsec)
             if a["payload"]["task_card_event_id"] == deid and \
-               not a["payload"]["assignee_instance"].startswith(("blaster", "tailor")):
+               not a["payload"]["assignee_instance"].startswith(("blaster", "tailor", "appsec")):
                 out[tid] = a["payload"]["assignee_instance"]
     return out
 

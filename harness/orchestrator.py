@@ -28,9 +28,13 @@ from harness.sandbox.worktree import (
 )
 from harness.wake import wake
 
-# role -> instance 映射。verifier/reviewer M2 仍单实例;builder 不在此表——按卡的
-# assignee_specialty 经 _builder_instance 动态实例化 <specialty>#N(ADR-019)。
-ROLE_INSTANCE = {"verifier": "blaster#1", "reviewer": "tailor#1"}
+# role -> instance 映射。verifier 单实例;builder 不在此表——按卡的 assignee_specialty 经
+# _builder_instance 动态实例化 <specialty>#N(ADR-019)。
+ROLE_INSTANCE = {"verifier": "blaster#1"}
+
+# 双审查 roster(ADR-019):每张 builder 卡完工后两位 reviewer 各审一次,全 pass 才 merge、
+# 任一 reject 触发返工。tailor=代码审查、appsec=安全审查(两道独立闸,看隔离事实 context)。
+REVIEWERS = ("tailor#1", "appsec#1")
 
 
 def _builder_delegates(events):
@@ -198,42 +202,64 @@ def _decide(events, max_rework):
             if not _has_later(events, rr["event_id"], {"verify_run"}, task_id=tid):
                 return ("dispatch_verifier", rr)
 
-    # 4. verify_run 之后无 review_verdict → 派 tailor 审查(decision 甲)
+    # 4. 双审查(ADR-019):每个 task 的最新 verify_run 轮后,每位 reviewer 各审一次
     for vr in events:
-        if vr["type"] == "verify_run":
-            tid = vr["payload"]["task_id"]
-            if not _has_later(events, vr["event_id"], {"review_verdict"}, task_id=tid):
-                return ("dispatch_reviewer", vr)
-
-    # 5. review_verdict 仲裁
-    for rv in events:
-        if rv["type"] != "review_verdict":
+        if vr["type"] != "verify_run":
             continue
-        tid = rv["payload"]["task_id"]
-        eid = rv["event_id"]
-        if rv["payload"]["verdict"] == "pass":
-            if not _has_later(events, eid, {"merge"}, task_id=tid):
-                return ("arbitrate_pass", rv)
-        else:  # reject
-            # 已处理:此 reject 之后已有"该 task 的 builder 重派"(返工)或 hitl(上抬)
-            d = _delegate_for_task(events, tid)
-            builder_redispatched = d is not None and any(
-                a["payload"].get("task_card_event_id") == d["event_id"]
-                and a["payload"].get("assignee_instance") in builder_insts
-                and a["event_id"] > eid
-                for a in assigns
+        tid = vr["payload"]["task_id"]
+        if _has_later(events, vr["event_id"], {"verify_run"}, task_id=tid):
+            continue  # 被更新一轮 verify 取代,只看最新轮
+        for reviewer in REVIEWERS:
+            reviewed = any(
+                e["type"] == "review_verdict" and e["payload"]["task_id"] == tid
+                and e["payload"].get("reviewer") == reviewer and e["event_id"] > vr["event_id"]
+                for e in events
             )
-            escalated = _has_later(events, eid, {"hitl_request"}, task_id=tid)
-            if builder_redispatched or escalated:
-                continue
-            reject_count = sum(
-                1 for e in events
-                if e["type"] == "review_verdict" and e["payload"]["task_id"] == tid
-                and e["payload"]["verdict"] == "reject" and e["event_id"] <= eid
-            )
-            if reject_count <= max_rework:
-                return ("rework", rv)
-            return ("escalate_reject", rv)
+            if not reviewed:
+                return ("dispatch_reviewer", (vr, reviewer))
+
+    # 5. 仲裁(双审查聚合):本轮(最新 verify_run 后)所有 reviewer verdict 齐了才裁决——
+    #    全 pass → merge;任一 reject → 返工(≤ max_rework 轮)或上抬 HITL。
+    for vr in events:
+        if vr["type"] != "verify_run":
+            continue
+        tid = vr["payload"]["task_id"]
+        if _has_later(events, vr["event_id"], {"verify_run"}, task_id=tid):
+            continue
+        round_verdicts = {}  # reviewer -> review_verdict event(本轮)
+        for e in events:
+            if (e["type"] == "review_verdict" and e["payload"]["task_id"] == tid
+                    and e["event_id"] > vr["event_id"]):
+                round_verdicts[e["payload"].get("reviewer")] = e
+        if not all(r in round_verdicts for r in REVIEWERS):
+            continue  # 本轮未审齐,等 stage 4 派完
+        last_ev = max(round_verdicts.values(), key=lambda e: e["event_id"])
+
+        if all(round_verdicts[r]["payload"]["verdict"] == "pass" for r in REVIEWERS):
+            if not _has_later(events, last_ev["event_id"], {"merge"}, task_id=tid):
+                return ("arbitrate_pass", last_ev)  # 全 pass → 合并
+            continue
+
+        # 至少一位 reject:已处理?(其后已有该卡 builder 重派 或 hitl)
+        d = _delegate_for_task(events, tid)
+        redispatched = d is not None and any(
+            a["payload"].get("task_card_event_id") == d["event_id"]
+            and a["payload"].get("assignee_instance") in builder_insts
+            and a["event_id"] > last_ev["event_id"] for a in assigns
+        )
+        if redispatched or _has_later(events, last_ev["event_id"], {"hitl_request"}, task_id=tid):
+            continue
+        # 已做返工轮数 = 该卡 builder guide_assign 次数 - 1(每轮可能两位 reject,按轮计而非按 verdict)
+        reworks_done = sum(
+            1 for a in assigns
+            if d is not None and a["payload"].get("task_card_event_id") == d["event_id"]
+            and a["payload"].get("assignee_instance") in builder_insts
+        ) - 1
+        reject_ev = next(round_verdicts[r] for r in REVIEWERS
+                         if round_verdicts[r]["payload"]["verdict"] == "reject")
+        if reworks_done < max_rework:
+            return ("rework", reject_ev)
+        return ("escalate_reject", reject_ev)
 
     return None
 
@@ -363,17 +389,16 @@ def advance(
                 remove_worktree_path(verify_wt, repo_root=repo_root)
 
         elif kind == "dispatch_reviewer":
-            vr = ctx
+            vr, reviewer = ctx  # 双审查:reviewer ∈ REVIEWERS(tailor#1 / appsec#1)
             d = _delegate_for_task(events, vr["payload"]["task_id"])
             card = d["payload"]["task_card"]
-            inst = ROLE_INSTANCE["reviewer"]
             ga = session_store.append_event(
                 agent="guide", type="guide_assign", parent_event_id=vr["event_id"],
                 session_id=vr["session_id"],
-                payload={"task_card_event_id": d["event_id"], "assignee_instance": inst},
+                payload={"task_card_event_id": d["event_id"], "assignee_instance": reviewer},
             )
-            # tailor 在隔离事实 context 上代码审查(机器判定权威由 review_task 强制)
-            review_task(inst, card, session_store, ga["event_id"], llm_client=llm_client)
+            # reviewer 在隔离事实 context 上审查(机器判定权威由 review_task 强制)
+            review_task(reviewer, card, session_store, ga["event_id"], llm_client=llm_client)
 
         elif kind == "arbitrate_pass":
             rv = ctx

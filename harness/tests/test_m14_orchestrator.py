@@ -72,13 +72,15 @@ def test_orchestrator_full_loop_offline(tmp_path):
         builder_scripted_actions=builder_actions,
     )
 
-    # 全链事件序列(M2.2a 单卡流:verify -> tailor review -> merge)
+    # 全链事件序列(单卡流 + 双审查 ADR-019:verify -> tailor + appsec review -> merge)
     types = [e["type"] for e in store.query_session()]
     assert types == [
         "user_command", "guide_think", "guide_delegate", "guide_assign",
         "tool_intent", "tool_done", "review_request",
         "guide_assign", "verify_run",
-        "guide_assign", "review_verdict", "merge",
+        "guide_assign", "review_verdict",   # tailor 代码审查
+        "guide_assign", "review_verdict",   # appsec 安全审查
+        "merge",
     ], f"事件链不符: {types}"
 
     events = store.query_session()
@@ -87,13 +89,14 @@ def test_orchestrator_full_loop_offline(tmp_path):
     assert vr["agent"] == "blaster#1"
     assert vr["payload"]["command"] == _LOGIN_CARD["verification"][0]["command"]  # 逐字
     assert vr["payload"]["passed"] is True
-    # tailor 出 review_verdict = pass(decision 甲)
-    rv = next(e for e in events if e["type"] == "review_verdict")
-    assert rv["agent"] == "tailor#1" and rv["payload"]["verdict"] == "pass"
-    # Guide 仲裁 merge 终态
+    # 双审查:tailor#1 + appsec#1 各出一条 review_verdict = pass
+    verdicts = [e for e in events if e["type"] == "review_verdict"]
+    assert {e["agent"] for e in verdicts} == {"tailor#1", "appsec#1"}
+    assert all(e["payload"]["verdict"] == "pass" for e in verdicts)
+    # Guide 仲裁 merge 终态;parent 锚在本轮最后一条 verdict(全 pass 才合并)
     mg = next(e for e in events if e["type"] == "merge")
     assert mg["agent"] == "guide" and mg["payload"]["result"] == "success"
-    assert mg["parent_event_id"] == rv["event_id"]
+    assert mg["parent_event_id"] == max(v["event_id"] for v in verdicts)
     # wake 最终任务板
     assert report["task_board"]["t-login-impl"]["status"] == "verified_pass"
     assert report["unpaired_intents"] == []
@@ -166,19 +169,21 @@ def test_orchestrator_full_loop_live_deepseek(tmp_path, monkeypatch):
     assert "review_verdict" in types, f"未到审查: {types}"
 
     vr = next(e for e in events if e["type"] == "verify_run")
-    rv = next(e for e in events if e["type"] == "review_verdict")
-    assert rv["agent"] == "tailor#1", "review_verdict 应由 tailor 出(decision 甲)"
+    verdicts = [e for e in events if e["type"] == "review_verdict"]
+    # 双审查(ADR-019):tailor + appsec 各审;reviewer 全在 roster 内
+    assert {e["agent"] for e in verdicts} <= {"tailor#1", "appsec#1"}
 
-    # 机器判定权威:verify 失败 → 必 reject(tailor 不可推翻机器)
+    # 机器判定权威:verify 失败 → 每位 reviewer 必 reject(不可推翻机器)
     if not vr["payload"]["passed"]:
-        assert rv["payload"]["verdict"] == "reject", "verify 失败但 verdict 非 reject"
+        assert all(e["payload"]["verdict"] == "reject" for e in verdicts), "verify 失败但有非 reject"
 
-    # 仲裁终态:pass → merge;reject → hitl_request(LLM 审查判断不可预测,两结局都接受)
-    if rv["payload"]["verdict"] == "pass":
-        assert "merge" in types, "verdict pass 但无 merge 终态"
+    # 仲裁终态:双审查全 pass → merge;任一 reject → hitl 兜底(LLM 判断不可预测,两结局都接受)
+    all_pass = verdicts and all(e["payload"]["verdict"] == "pass" for e in verdicts)
+    if all_pass:
+        assert "merge" in types, "双审查全 pass 但无 merge 终态"
         expected_status = "verified_pass"
     else:
-        assert "hitl_request" in types, "verdict reject 但无 hitl 兜底"
+        assert "hitl_request" in types, "有 reject 但无 hitl 兜底"
         expected_status = "rejected"
 
     # 干净机器 wake 演示:换全新 SessionStore 打开同一 db,纯日志重建状态、不报错

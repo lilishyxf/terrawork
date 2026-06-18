@@ -1,7 +1,8 @@
-"""M2.2b 退回重做循环测试。
+"""M2.2b 退回重做 + M2.7-4 双审查聚合(ADR-019)。
 
-reject → 重派 builder 返工(复用 worktree + 注入 reject notes),≤ max_rework 次;超限 → hitl。
-离线确定性:guide 单卡 stub + builder scripted + 有状态 tailor stub(控制 reject/pass 序列)。
+任一 reviewer reject → 重派 builder 返工(复用 worktree + 注入 notes),≤ max_rework 轮;
+超限 → hitl。双审查:tailor(代码审查)+ appsec(安全审查)各审一次,全 pass 才 merge。
+离线确定性:guide 单卡 stub + builder scripted + 有状态 reviewer stub(分 tailor/appsec 控制序列)。
 """
 import json
 import subprocess
@@ -32,55 +33,81 @@ def _git_init_repo(repo: Path):
 
 
 class _StubLLM:
-    """guide 恒返单卡;tailor 按预设 verdict 序列逐次返回(最后一个用于其后所有调用)。"""
-    def __init__(self, tailor_verdicts):
-        self._tv = list(tailor_verdicts)
-        self.tailor_calls = 0
+    """guide 恒返单卡;两位 reviewer 各按预设 verdict 序列(最后一个用于其后所有调用)。
+    appsec 缺省恒 pass(只验安全那条线时不干扰)。appsec.md 提示词含'应用安全',据此先于'裁缝'分派。"""
+    def __init__(self, tailor_verdicts, appsec_verdicts=None):
+        self._t = list(tailor_verdicts)
+        self._a = list(appsec_verdicts) if appsec_verdicts else None
+        self.tcalls = 0
+        self.acalls = 0
 
     def complete(self, model, messages, **kwargs):
         system = messages[0]["content"] if messages else ""
+        if "应用安全" in system:  # appsec 先判(其 prompt 也提到"裁缝")
+            if self._a is None:
+                return json.dumps({"verdict": "pass", "notes": "安全通过"}, ensure_ascii=False)
+            i = min(self.acalls, len(self._a) - 1)
+            self.acalls += 1
+            return json.dumps({"verdict": self._a[i], "notes": f"appsec第{self.acalls}次:{self._a[i]}"},
+                              ensure_ascii=False)
         if "裁缝" in system or "Tailor" in system:
-            i = min(self.tailor_calls, len(self._tv) - 1)
-            self.tailor_calls += 1
-            verdict = self._tv[i]
-            return json.dumps({"verdict": verdict, "notes": f"审查第{self.tailor_calls}次:{verdict}"},
+            i = min(self.tcalls, len(self._t) - 1)
+            self.tcalls += 1
+            return json.dumps({"verdict": self._t[i], "notes": f"tailor第{self.tcalls}次:{self._t[i]}"},
                               ensure_ascii=False)
         return _GUIDE_JSON
 
 
-def _run(tmp_path, tailor_verdicts, max_rework=2):
+def _run(tmp_path, tailor_verdicts, appsec_verdicts=None, max_rework=2):
     repo = tmp_path / "repo"; repo.mkdir(); _git_init_repo(repo)
     store = SessionStore(tmp_path / "session.db")
     store.append_event(agent="user", type="user_command",
                        payload={"text": "做个登录"}, session_id="rework")
-    report = advance(store, llm_client=_StubLLM(tailor_verdicts),
+    report = advance(store, llm_client=_StubLLM(tailor_verdicts, appsec_verdicts),
                      repo_root=repo, worktrees_base=tmp_path / "worktrees",
                      builder_scripted_actions=_BUILDER_ACTIONS, max_rework=max_rework)
     return store, report
 
 
+def _verdicts_by(events, reviewer):
+    return [e["payload"]["verdict"] for e in events
+            if e["type"] == "review_verdict" and e["payload"]["reviewer"] == reviewer]
+
+
+def _builder_assigns(events):
+    return [e for e in events if e["type"] == "guide_assign"
+            and e["payload"]["assignee_instance"] == "merchant#1"]
+
+
 def test_rework_then_pass(tmp_path):
-    """首轮 reject → 返工(复用 worktree)→ 次轮 pass → merge。"""
+    """tailor 首轮 reject → 返工 → 次轮双审查全 pass → merge(appsec 恒 pass)。"""
     store, report = _run(tmp_path, tailor_verdicts=["reject", "pass"])
     events = store.query_session()
-    verdicts = [e["payload"]["verdict"] for e in events if e["type"] == "review_verdict"]
-    assert verdicts == ["reject", "pass"], f"verdict 序列应 reject→pass,实际 {verdicts}"
-    # 返工:reject 后有第二个 builder guide_assign
-    builder_assigns = [e for e in events if e["type"] == "guide_assign"
-                       and e["payload"]["assignee_instance"] == "merchant#1"]
-    assert len(builder_assigns) == 2, f"应有 2 次 builder 派发(初始+返工),实际 {len(builder_assigns)}"
-    # 两轮 verify、最终 merge
-    assert sum(1 for e in events if e["type"] == "verify_run") == 2
-    assert any(e["type"] == "merge" for e in events), "次轮 pass 后应 merge"
+    assert _verdicts_by(events, "tailor#1") == ["reject", "pass"]
+    assert _verdicts_by(events, "appsec#1") == ["pass", "pass"]  # 两轮都安全通过
+    assert len(_builder_assigns(events)) == 2, "应 2 次 builder 派发(初始+返工)"
+    assert sum(1 for e in events if e["type"] == "verify_run") == 2  # 两轮各一次验证
+    assert any(e["type"] == "merge" for e in events), "次轮全 pass 后应 merge"
+    assert report["task_board"]["t-login-impl"]["status"] == "verified_pass"
+
+
+def test_appsec_reject_triggers_rework(tmp_path):
+    """双审查聚合:tailor 全 pass 但 appsec 首轮 reject → 仍返工;次轮全 pass → merge。"""
+    store, report = _run(tmp_path, tailor_verdicts=["pass"], appsec_verdicts=["reject", "pass"])
+    events = store.query_session()
+    assert _verdicts_by(events, "appsec#1") == ["reject", "pass"]
+    assert len(_builder_assigns(events)) == 2, "appsec reject 也应触发返工(任一 reject→返工)"
+    assert any(e["type"] == "merge" for e in events)
     assert report["task_board"]["t-login-impl"]["status"] == "verified_pass"
 
 
 def test_rework_exhausted_escalates_to_hitl(tmp_path):
-    """持续 reject:返工 max_rework 次后超限 → hitl 兜底,不无限循环。"""
+    """持续 reject:返工 max_rework 轮后超限 → hitl 兜底,不无限循环。"""
     store, report = _run(tmp_path, tailor_verdicts=["reject"], max_rework=2)
     events = store.query_session()
-    rejects = [e for e in events if e["type"] == "review_verdict" and e["payload"]["verdict"] == "reject"]
-    assert len(rejects) == 3, f"max_rework=2 → 3 次 reject(初始+2 返工),实际 {len(rejects)}"
+    # max_rework=2 → 3 轮(初始+2 返工),每轮 tailor 各 reject 一次 → 3 次 tailor reject
+    assert _verdicts_by(events, "tailor#1") == ["reject", "reject", "reject"]
+    assert len(_builder_assigns(events)) == 3, "初始 + 2 返工 = 3 次 builder 派发"
     assert any(e["type"] == "hitl_request" for e in events), "超限应 hitl 兜底"
     assert not any(e["type"] == "merge" for e in events), "全 reject 不应 merge"
     assert report["task_board"]["t-login-impl"]["status"] == "rejected"
