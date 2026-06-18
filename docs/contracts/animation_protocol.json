@@ -1,0 +1,46 @@
+{
+  "id": "view_animation_protocol",
+  "version": "0.1",
+  "milestone": "M3.1",
+  "description": "状态-动画协议(§7 codification + ADR-020 扩展)。View 层核心资产:每个动画状态严格映射一个 Harness 真实状态(ADR-003),表外不加装饰动画。harness/view/projection.py 与 src/game/protocol/ 均以本表为准。",
+
+  "states": {
+    "idle":            {"meaning": "资源空闲,可分配",            "s7": "无任务",       "animation": "院里睡觉/钓鱼/玩"},
+    "decomposing":     {"meaning": "向导拆解需求、匹配专家",       "s7": "扩展",         "animation": "前台翻看指令"},
+    "thinking":        {"meaning": "LLM 推理中,勿扰(对人可悬停)", "s7": "LLM 推理中",   "animation": "托腮 + 思考泡"},
+    "working":         {"meaning": "工具执行中,正在干活",         "s7": "工具执行中",   "animation": "打字/敲打(按职业皮肤:商人钱币泡等)"},
+    "rework":          {"meaning": "上轮被退回,返工中",           "s7": "被退回返工",   "animation": "挠头走回工位再干"},
+    "awaiting_review": {"meaning": "完工,流程阻塞在审查",         "s7": "等待审查",     "animation": "审查间门口踱步"},
+    "verifying":       {"meaning": "机器验证在跑",                "s7": "验证执行中",   "animation": "爆破专家点引线"},
+    "reviewing":       {"meaning": "审查中(代码/安全,双审查)",    "s7": "扩展(ADR-019)", "animation": "审查台看代码 / 查漏洞"},
+    "hitl":            {"meaning": "需要人类,最高优先级",         "s7": "等待人类(HITL)", "animation": "走到屏幕前敲玻璃"},
+    "error":           {"meaning": "卡死/循环/报错,需关注",       "s7": "卡死/报错",    "animation": "工位冒烟 + 红色感叹号(叠加,保留原区)"}
+  },
+
+  "signals": {
+    "merge": {"meaning": "合并完成,里程碑达成", "s7": "合并完成", "animation": "钟楼敲钟(全局)"}
+  },
+
+  "zones": {
+    "yard":        "室外院子(idle 的 builder 工人睡/钓/玩)",
+    "lobby":       "大堂/前台(向导驻地)",
+    "workshop":    "工坊小屋(每个活跃 builder 实例一间)",
+    "review_door": "审查间门口(完工待审踱步)",
+    "verify_room": "验证间(爆破工)",
+    "review_room": "审查间(裁缝代码审查 + appsec 安全审查两席)",
+    "at_glass":    "屏幕前(HITL 敲玻璃)"
+  },
+
+  "npc_kinds": {
+    "guide":    {"sprite_key": "guide",        "home_zone": "lobby"},
+    "verifier": {"sprite_key": "blaster",      "home_zone": "verify_room"},
+    "reviewer": {"sprite_key": "<role-name>",  "home_zone": "review_room", "note": "sprite_key = 角色名(tailor / appsec)"},
+    "builder":  {"sprite_key": "<specialty>",  "home_zone": "workshop",    "note": "sprite_key = assignee_specialty(frontend/backend/...);默认 merchant"}
+  },
+
+  "notes": [
+    "本表是 §7 的代码化 + ADR-020 扩展;扩展的可追溯性由 ADR-020 + 本文件 + git diff 承载,不改 ARCHITECTURE §7 正文。",
+    "zone 的精确归属(尤其 idle/thinking 随 NPC 类型不同、error 保留原区)由 projection.py 的派生逻辑权威实现;本表给 state 的语义与默认动画。",
+    "实例 → sprite-key:guide→guide;<specialty>#N→<specialty>;blaster#N→blaster;tailor#N→tailor;appsec#N→appsec。色块阶段按 key 取色,精灵阶段按同一 key 取图。"
+  ]
+}

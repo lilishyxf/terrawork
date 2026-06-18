@@ -1,0 +1,39 @@
+{
+  "id": "m3_projection",
+  "milestone": "M3.1",
+  "description": "View 动画投影 fixture(ADR-020):单卡 + 双审查 happy 流的事件序列,配若干游标快照断言。投影 = Catch-up 快进(replay 到游标即得当前动画状态)。",
+
+  "events": [
+    {"event_id": 1, "type": "user_command", "agent": "user", "payload": {"text": "做个登录"}},
+    {"event_id": 2, "type": "guide_think", "agent": "guide", "payload": {"text": "拆解"}},
+    {"event_id": 3, "type": "guide_delegate", "agent": "guide", "payload": {"task_card": {"task_id": "t-x"}}},
+    {"event_id": 4, "type": "guide_assign", "agent": "guide", "payload": {"task_card_event_id": 3, "assignee_instance": "merchant#1"}},
+    {"event_id": 5, "type": "tool_intent", "agent": "merchant#1", "payload": {"tool": "write", "task_id": "t-x"}},
+    {"event_id": 6, "type": "tool_done", "agent": "merchant#1", "payload": {"tool": "write", "status": "ok"}},
+    {"event_id": 7, "type": "review_request", "agent": "merchant#1", "payload": {"task_id": "t-x", "reviewer": "tailor"}},
+    {"event_id": 8, "type": "guide_assign", "agent": "guide", "payload": {"task_card_event_id": 3, "assignee_instance": "blaster#1"}},
+    {"event_id": 9, "type": "verify_run", "agent": "blaster#1", "payload": {"task_id": "t-x", "command": "x", "exit_code": 0, "passed": true}},
+    {"event_id": 10, "type": "guide_assign", "agent": "guide", "payload": {"task_card_event_id": 3, "assignee_instance": "tailor#1"}},
+    {"event_id": 11, "type": "review_verdict", "agent": "tailor#1", "payload": {"task_id": "t-x", "reviewer": "tailor#1", "verdict": "pass", "notes": "ok"}},
+    {"event_id": 12, "type": "guide_assign", "agent": "guide", "payload": {"task_card_event_id": 3, "assignee_instance": "appsec#1"}},
+    {"event_id": 13, "type": "review_verdict", "agent": "appsec#1", "payload": {"task_id": "t-x", "reviewer": "appsec#1", "verdict": "pass", "notes": "安全ok"}},
+    {"event_id": 14, "type": "merge", "agent": "guide", "payload": {"task_id": "t-x", "source": "npc/merchant-1", "target": "main", "result": "success", "commit": "abcdef1"}}
+  ],
+
+  "checkpoints": [
+    {"after_event_id": 0,  "expect": {"guide": {"state": "idle", "zone": "lobby"}, "blaster#1": {"state": "idle", "zone": "verify_room"}, "tailor#1": {"state": "idle", "zone": "review_room"}, "appsec#1": {"state": "idle", "zone": "review_room"}}},
+    {"after_event_id": 6,  "expect": {"merchant#1": {"state": "working", "zone": "workshop"}}},
+    {"after_event_id": 7,  "expect": {"merchant#1": {"state": "awaiting_review", "zone": "review_door"}}},
+    {"after_event_id": 9,  "expect": {"blaster#1": {"state": "idle", "zone": "verify_room"}, "merchant#1": {"state": "awaiting_review", "zone": "review_door"}}},
+    {"after_event_id": 11, "expect": {"tailor#1": {"state": "idle", "zone": "review_room"}}},
+    {"after_event_id": 14, "expect": {"merchant#1": {"state": "idle", "zone": "yard"}, "guide": {"state": "idle", "zone": "lobby"}}}
+  ],
+
+  "expect_last_merge_task": "t-x",
+
+  "notes": [
+    "投影只读 type/agent/event_id/payload,不依赖 parent_event_id。",
+    "after_event_id=0 即空 replay:固定班子(guide/blaster/tailor/appsec)恒在场且 idle 留守 home zone。",
+    "merge 后该卡 builder(merchant#1)回院子 idle;last_merge 置为该卡(钟楼敲钟全局信号)。"
+  ]
+}
