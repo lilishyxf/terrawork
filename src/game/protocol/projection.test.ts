@@ -34,4 +34,16 @@ describe("TS projection 与 Python fixture parity", () => {
     expect(snap.npcs["merchant#1"].state).toBe("idle");
     expect(snap.npcs["merchant#1"].zone).toBe("yard");
   });
+
+  it("task_board.status 随事件推进(parity Python INV-6)", () => {
+    const seen = [3, 4, 7, 9, 11, 13, 14].map((eid) => {
+      const snap = project(FX.events.filter((e) => e.event_id <= eid));
+      return [eid, snap.task_board["t-x"].status] as const;
+    });
+    expect(seen).toEqual([
+      [3, "queued"], [4, "building"], [7, "awaiting_review"], [9, "post_verify"],
+      [11, "reviewing"], [13, "reviewing"], [14, "merged"],
+    ]);
+    expect(project(FX.events).task_board["t-x"].builder).toBe("merchant#1");
+  });
 });

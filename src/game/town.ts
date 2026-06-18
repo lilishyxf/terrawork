@@ -42,18 +42,26 @@ const SPRITE_STROKE: Record<string, number> = {
 
 interface NpcView { rect: Phaser.GameObjects.Rectangle; label: Phaser.GameObjects.Text; }
 
+export type HoverCallback = (npcId: string | null, screen: { x: number; y: number } | null) => void;
+
 export class TownScene extends Phaser.Scene {
   private npcs = new Map<string, NpcView>();
   private bell?: Phaser.GameObjects.Text;
   private lastMergeEid = 0;
+  private hitlPulse?: Phaser.GameObjects.Rectangle;
+  private hoverCb: HoverCallback = () => {};
   constructor() { super("Town"); }
+
+  setHoverCallback(cb: HoverCallback) { this.hoverCb = cb; }
 
   create() {
     // 区背景 + 标签
-    for (const z of Object.values(ZONE_POS)) {
-      this.add.rectangle(z.x, z.y, z.w, z.h, 0xf5f0e6, 0.55).setStrokeStyle(1, 0xcfc7b6);
+    for (const [key, z] of Object.entries(ZONE_POS)) {
+      const bg = this.add.rectangle(z.x, z.y, z.w, z.h, 0xf5f0e6, 0.55)
+        .setStrokeStyle(1, 0xcfc7b6);
       this.add.text(z.x - z.w / 2 + 6, z.y - z.h / 2 + 4, z.label,
         { fontSize: "12px", color: "#776" });
+      if (key === "at_glass") this.hitlPulse = bg; // HITL 时此区闪烁
     }
     // 钟楼
     this.bell = this.add.text(40, 30, "🔔", { fontSize: "28px", color: "#a90" })
@@ -61,17 +69,19 @@ export class TownScene extends Phaser.Scene {
     this.add.text(40, 60, "钟楼", { fontSize: "11px", color: "#aaa" }).setOrigin(0);
   }
 
-  /** 用最新 snapshot 调和场景:create/move/recolor;触发 bell。 */
+  /** 用最新 snapshot 调和场景:create/move/recolor;触发 bell;HITL 闪烁。 */
   applySnapshot(snap: ViewSnapshot) {
     const occ: Record<Zone, number> = {} as Record<Zone, number>;
+    let hitlActive = false;
     for (const [id, n] of Object.entries(snap.npcs)) {
       this._placeOrUpdate(id, n, occ);
+      if (n.state === "hitl") hitlActive = true;
     }
-    // 不在 snapshot 里的旧 NPC 不删(固定班子恒存在;builder 实例只增不删,merge 后回 yard)
     if (snap.last_merge && snap.last_merge.event_id !== this.lastMergeEid) {
       this.lastMergeEid = snap.last_merge.event_id;
       this._ringBell();
     }
+    this._setHitlPulse(hitlActive);
   }
 
   private _placeOrUpdate(id: string, n: NpcSnapshot, occ: Record<Zone, number>) {
@@ -89,6 +99,10 @@ export class TownScene extends Phaser.Scene {
     if (!v) {
       const rect = this.add.rectangle(x, y, 26, 22, color).setStrokeStyle(2, stroke);
       const label = this.add.text(x - 16, y + 12, id, { fontSize: "9px", color: "#444" });
+      // 悬停:通知 React 端展示 think 浮窗(ADR-002 对人全透明)
+      rect.setInteractive({ useHandCursor: true });
+      rect.on("pointerover", () => this.hoverCb(id, { x: rect.x, y: rect.y }));
+      rect.on("pointerout",  () => this.hoverCb(null, null));
       v = { rect, label };
       this.npcs.set(id, v);
     } else {
@@ -107,6 +121,21 @@ export class TownScene extends Phaser.Scene {
       targets: this.bell, alpha: 1, duration: 200, yoyo: true, hold: 600,
       onComplete: () => this.bell?.setAlpha(0.18),
     });
+  }
+
+  private _hitlTween?: Phaser.Tweens.Tween;
+  private _setHitlPulse(active: boolean) {
+    if (!this.hitlPulse) return;
+    if (active && !this._hitlTween) {
+      this.hitlPulse.setFillStyle(0xffe0e0, 0.85);
+      this._hitlTween = this.tweens.add({
+        targets: this.hitlPulse, alpha: { from: 0.85, to: 0.35 },
+        duration: 500, yoyo: true, repeat: -1, ease: "Sine.easeInOut",
+      });
+    } else if (!active && this._hitlTween) {
+      this._hitlTween.stop(); this._hitlTween = undefined;
+      this.hitlPulse.setFillStyle(0xf5f0e6, 0.55).setAlpha(1);
+    }
   }
 }
 

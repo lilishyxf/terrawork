@@ -78,6 +78,37 @@ def test_hitl_and_error():
     assert err["npcs"]["merchant#1"]["zone"] == "workshop"  # error 保留原区(冒烟叠加)
 
 
+def test_task_board_progression():
+    """INV-6:task_board.status 随事件推进:queued → building → awaiting_review → post_verify → reviewing → merged。"""
+    fx = _fx()
+    seen = []
+    for cp_eid in [3, 4, 7, 9, 11, 13, 14]:
+        snap = project(_upto(fx["events"], cp_eid))
+        seen.append((cp_eid, snap["task_board"]["t-x"]["status"]))
+    assert seen == [
+        (3, "queued"), (4, "building"), (7, "awaiting_review"), (9, "post_verify"),
+        (11, "reviewing"), (13, "reviewing"), (14, "merged"),
+    ]
+    final = project(fx["events"])
+    assert final["task_board"]["t-x"]["builder"] == "merchant#1"
+
+
+def test_think_capture_for_hover():
+    """INV-7:guide_think 与 npc_think 的最新 text 记录在该 NPC 的 think 字段(供悬停浮窗)。"""
+    snap = project([
+        {"event_id": 1, "type": "guide_think", "agent": "guide", "payload": {"text": "拆解 login"}},
+        {"event_id": 2, "type": "guide_delegate", "agent": "guide", "payload": {"task_card": {"task_id": "t"}}},
+        {"event_id": 3, "type": "guide_assign", "agent": "guide",
+         "payload": {"task_card_event_id": 2, "assignee_instance": "merchant#1"}},
+        {"event_id": 4, "type": "npc_think", "agent": "merchant#1",
+         "payload": {"text": "先读现有代码"}},
+        {"event_id": 5, "type": "npc_think", "agent": "merchant#1",
+         "payload": {"text": "改用 hashlib"}},
+    ])
+    assert snap["npcs"]["guide"]["think"] == {"text": "拆解 login", "event_id": 1}
+    assert snap["npcs"]["merchant#1"]["think"] == {"text": "改用 hashlib", "event_id": 5}
+
+
 def test_instance_to_sprite_key():
     """INV-5:实例 → sprite-key 与 kind 映射。"""
     events = [
