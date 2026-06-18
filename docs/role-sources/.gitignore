@@ -1,0 +1,4 @@
+# 原始第三方提示词(agency-agents)仅作本地参考,不 vendoring 进仓库(许可未核)。
+# 适配后的 TerraWorks 原生角色在 roles/*.md;本目录只提交 README(出处+映射)。
+*.md
+!README.md
