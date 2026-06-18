@@ -24,3 +24,9 @@ __pycache__/
 *.db-wal
 *.db-shm
 data/worktrees/
+
+# 前端(M3 View)
+node_modules/
+dist/
+# Tauri 壳(待 Rust 就绪)
+src-tauri/target/

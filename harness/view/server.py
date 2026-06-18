@@ -11,6 +11,7 @@ import asyncio
 from pathlib import Path
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi.middleware.cors import CORSMiddleware
 
 from harness.session.store import SessionStore
 from harness.view.projection import project
@@ -32,6 +33,11 @@ def _read_events(db_path, sid: str, since: int = 0, limit=None) -> list[dict]:
 def create_app(db_path, *, poll_interval: float = 0.3) -> FastAPI:
     db_path = Path(db_path)
     app = FastAPI(title="TerraWorks View API", version="0.1")
+    # 本地 dev:Vite(:5173)与 API(:8000)跨源,/events 的 fetch 需 CORS。
+    # 只读服务,放开本地访问;生产收紧由部署层负责。
+    app.add_middleware(
+        CORSMiddleware, allow_origins=["*"], allow_methods=["GET"], allow_headers=["*"],
+    )
 
     @app.get("/sessions/{sid}/events")
     def get_events(sid: str, since: int = 0, limit: int = 500):
