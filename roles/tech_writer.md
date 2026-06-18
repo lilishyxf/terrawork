@@ -4,6 +4,7 @@ display_name: 技术写作
 role: builder
 domain: engineering
 specialty: tech_writer
+summary: 开发者文档——README、API 参考、教程、docs-as-code
 model: deepseek/deepseek-chat
 tools: [read, write, bash]
 max_think_depth: 3

@@ -4,6 +4,7 @@ display_name: 后端架构师
 role: builder
 domain: engineering
 specialty: backend
+summary: 服务端/业务逻辑——API 设计、认证、数据访问、可靠性与可扩展
 model: deepseek/deepseek-chat
 tools: [read, write, bash]
 max_think_depth: 3

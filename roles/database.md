@@ -4,6 +4,7 @@ display_name: 数据库优化器
 role: builder
 domain: engineering
 specialty: database
+summary: 存储层——schema 设计、查询优化、索引、迁移(PostgreSQL/MySQL/SQLite)
 model: deepseek/deepseek-chat
 tools: [read, write, bash]
 max_think_depth: 3

@@ -4,6 +4,7 @@ display_name: 桌面壳工程师
 role: builder
 domain: engineering
 specialty: desktop_shell
+summary: 桌面壳——Tauri/Electron 窗口/菜单/托盘、打包签名、sidecar 桥接
 model: deepseek/deepseek-chat
 tools: [read, write, bash]
 max_think_depth: 3

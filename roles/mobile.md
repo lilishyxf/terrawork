@@ -4,6 +4,7 @@ display_name: 移动应用构建器
 role: builder
 domain: engineering
 specialty: mobile
+summary: 移动应用——iOS/Android 原生、React Native/Flutter 跨平台
 model: deepseek/deepseek-chat
 tools: [read, write, bash]
 max_think_depth: 3

@@ -4,6 +4,7 @@ display_name: 快速原型机
 role: builder
 domain: engineering
 specialty: rapid_proto
+summary: 快速原型/MVP——用现成栈最快验证核心假设
 model: deepseek/deepseek-chat
 tools: [read, write, bash]
 max_think_depth: 3

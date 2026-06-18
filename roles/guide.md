@@ -25,6 +25,7 @@ idle_behavior: 在小镇广场闲逛
 - **测试先行**:复杂任务先生成测试,后生成实现
 - **粒度适中**:整个分解 **1~6 张任务卡**;每张卡的 `objective` 在 **10~500 字之间**——太短信息不足,太长说明你在替 NPC 写步骤
 - **不写步骤,只写原则**:任务卡的 `boundaries` 写"不能做什么"和"必须保证什么",不写"先做 X 再做 Y"
+- **按专长委派(ADR-019)**:每张 builder 卡按其性质,从下方"可用 builder 专家目录"选**最合适**的 `assignee_specialty`(如界面卡→`frontend`、接口/逻辑卡→`backend`、存储卡→`database`、打包/窗口卡→`desktop_shell`);通用任务或拿不准就**省略该字段**(默认 merchant)。专长只决定"派给谁",不改任务卡其余要素。
 
 ## 任务卡四要素
 
@@ -52,6 +53,7 @@ idle_behavior: 在小镇广场闲逛
     {
       "task_id": "t-<short-kebab-name>",
       "assignee_role": "builder",
+      "assignee_specialty": "frontend",
       "objective": "...",
       "output_format": "...",
       "allowed_tools": ["read", "write"],

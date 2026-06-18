@@ -28,9 +28,9 @@ from harness.sandbox.worktree import (
 )
 from harness.wake import wake
 
-# role -> instance 映射。verifier/reviewer M2 仍单实例;builder 多卡时按卡序分配多实例(见
-# _builder_instance),保证 test-first 测试作者≠实现者(ADR-004 / ADR-015)。
-ROLE_INSTANCE = {"builder": "merchant#1", "verifier": "blaster#1", "reviewer": "tailor#1"}
+# role -> instance 映射。verifier/reviewer M2 仍单实例;builder 不在此表——按卡的
+# assignee_specialty 经 _builder_instance 动态实例化 <specialty>#N(ADR-019)。
+ROLE_INSTANCE = {"verifier": "blaster#1", "reviewer": "tailor#1"}
 
 
 def _builder_delegates(events):
@@ -41,12 +41,23 @@ def _builder_delegates(events):
     )
 
 
+def _card_specialty(delegate):
+    """卡的 builder 专长键:assignee_specialty,缺省 merchant(向后兼容,ADR-019)。"""
+    return delegate["payload"]["task_card"].get("assignee_specialty") or "merchant"
+
+
 def _builder_instance(events, delegate):
-    """按 builder 卡出现顺序稳定分配实例:第 i 张 → merchant#(i+1)。
-    test-first 中测试卡(第1张)→ merchant#1、实现卡(第2张)→ merchant#2,作者≠实现者。"""
-    bds = _builder_delegates(events)
-    idx = next(i for i, e in enumerate(bds) if e["event_id"] == delegate["event_id"])
-    return f"merchant#{idx + 1}"
+    """按专长稳定分配实例:<specialty>#<同专长内出现序号>(ADR-019 双轴)。
+    专长取卡的 assignee_specialty,缺省 merchant。同一专长多卡 → #1/#2…(test-first
+    测试卡≠实现卡,作者≠实现者,ADR-004);无专长的旧式分解全是 merchant#1/#2…(行为不变)。"""
+    target = _card_specialty(delegate)
+    count = 0
+    for e in _builder_delegates(events):
+        if _card_specialty(e) == target:
+            count += 1
+            if e["event_id"] == delegate["event_id"]:
+                return f"{target}#{count}"
+    raise ValueError(f"delegate {delegate['event_id']} 不在 builder delegates 中")
 
 
 def _deps_satisfied(events, task_card):
@@ -149,7 +160,8 @@ def _decide(events, max_rework):
         return ("guide_decompose", next(e for e in events if e["type"] == "user_command"))
 
     assigns = [e for e in events if e["type"] == "guide_assign"]
-    builder_insts = {f"merchant#{i + 1}" for i in range(len(_builder_delegates(events)))}
+    # builder 实例集合(按各卡专长泛化,ADR-019;不再写死 merchant)
+    builder_insts = {_builder_instance(events, d) for d in _builder_delegates(events)}
 
     # 2. builder 卡首次派发:无引用它的 builder guide_assign,且 depends_on 已满足(test-first
     #    实现卡在测试卡 merge 后才派)。返工的重派走 stage 5。

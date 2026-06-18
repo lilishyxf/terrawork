@@ -4,6 +4,7 @@ display_name: 前端开发者
 role: builder
 domain: engineering
 specialty: frontend
+summary: 前端 UI 实现——React/Vue/Angular 组件、响应式与可访问性、性能(Core Web Vitals)
 model: deepseek/deepseek-chat
 tools: [read, write, bash]
 max_think_depth: 3
