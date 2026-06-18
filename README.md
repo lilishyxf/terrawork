@@ -12,12 +12,13 @@
 
 ```
 用户一句模糊指令
-  → Guide 分解为任务卡（test-first：测试卡 + 实现卡 depends_on 测试卡）
-  → 多实例执行（测试作者 merchant#1 ≠ 实现者 merchant#2，物理隔离 context）
+  → Guide 分解为任务卡，并**自动匹配专家**（界面卡→frontend、接口卡→backend…，ADR-019）
+    （test-first：测试卡 + 实现卡 depends_on 测试卡）
+  → 多实例执行（按专长实例化 <specialty>#N；测试作者 ≠ 实现者，物理隔离 context；独立卡并发）
   → 验证（machine_verifiable：command + expected exit_code，验证者只执行不判断）
-  → 裁缝审查（context 硬过滤 think 事件，只看事实不看叙述）
-  → 退回重做循环（reject → 注入整改要点返工，≤ max_rework 次，超限转 HITL）
-  → Guide 仲裁 → git merge 回主干
+  → 双审查（裁缝代码审查 + appsec 安全审查，context 硬过滤 think，只看事实不看叙述）
+  → 退回重做循环（任一审查 reject → 注入整改要点返工，≤ max_rework 次，超限转 HITL）
+  → Guide 仲裁（双审查全 pass）→ 真 git merge 回主干
   → 全程仅追加日志；强杀进程后 advance() 从日志无缝续作（恢复状态不恢复思维）
 ```
 
@@ -29,6 +30,7 @@
 | M2 核心 | 多 NPC + 裁缝审查（context 隔离）+ 退回重做 + 崩溃续作 + 多卡 test-first | ✅ 达成（§12 验收：强杀重启续作） |
 | M2.6 真隔离 | per-card worktree + 真 git merge（红线 #6）+ merge-then-verify + NPC 子进程隔离 | ✅ 达成（ADR-016/017，离线 67 passed） |
 | M2.5 真并行 | 多实例并发执行（独立卡）+ `max_concurrent_agents` | ✅ 达成（ADR-018，计时实证并发，70 passed） |
+| M2.7 专家委派 | 双轴角色（功能×专长）+ 向导自动匹配专家 + 双审查聚合 | ✅ 达成（ADR-019，9 专家角色库，80 passed） |
 | M3+ | 像素小镇 View / 双向交互 / 打磨发布 | ⬜ 未开始 |
 
 关键决策与偏差均记录在 [docs/adr/](docs/adr/)。M2.6 收尾了 §1 红线 #6（Sandbox 不共享可写 FS、跨 NPC 交换只走 git merge）：ADR-016（真 git merge + per-card worktree + merge-then-verify）superseded 了 ADR-014/015 的文件系统让步，ADR-017（NPC 子进程隔离）收尾了 ADR-012 的进程隔离。

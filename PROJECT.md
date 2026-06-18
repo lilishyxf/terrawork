@@ -84,6 +84,7 @@ terraworks/
 - View 层（M3）未开始，目前无 GUI；演示通过测试套件与日志回放 CLI 进行。
 - **M2.6 真隔离已达成**（收 §1 红线 #6）：per-card 独立 worktree + 真 git merge 产物交换（ADR-016，supersede ADR-014/015）、NPC 子进程隔离（ADR-017，supersede ADR-012）。离线 67 passed。
 - **M2.5 真并行已达成**（ADR-018）：互不依赖的多卡并发批派发（独立 worktree + 子进程 + `max_concurrent_agents`，计时实证真并发）。**M1 + M2 全部完成。**
+- **M2.7 角色感知专家委派已达成**（ADR-019）：双轴角色模型（功能 role × 专长 name）+ 向导按需求自动匹配专家（catalog 注入 + `assignee_specialty`）+ 9 个专家角色库（frontend/backend/database/desktop_shell/ai_engineer/rapid_proto/tech_writer/mobile + appsec）+ 双审查聚合（tailor 代码审查 + appsec 安全审查，全 pass 才 merge）。
 - **下一步**：M3 像素小镇 View（Phaser 渲染 + 状态-动画协议 + catch-up/live 订阅）——把无头 Harness 变成游戏化双向编排产品。
 
 ## 后续里程碑
