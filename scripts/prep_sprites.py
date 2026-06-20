@@ -57,7 +57,9 @@ def prep_one(src: Path, dst: Path, size: int, thresh: int) -> None:
     img = Image.open(src)
     img = _strip_white_bg(img, thresh)
     img = _square_pad(img)
-    img = img.resize((size, size), Image.NEAREST)
+    # 高清"伪像素"原图缩小:用 LANCZOS(抗锯齿、干净);仅放大时才用 NEAREST 保块状。
+    flt = Image.NEAREST if img.size[0] < size else Image.LANCZOS
+    img = img.resize((size, size), flt)
     dst.parent.mkdir(parents=True, exist_ok=True)
     img.save(dst)
 

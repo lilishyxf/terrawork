@@ -104,8 +104,8 @@ export class TownScene extends Phaser.Scene {
     occ[n.zone] = idx + 1;
     // 同区横向排开,每行最多 5 个
     const col = idx % 5, row = Math.floor(idx / 5);
-    const x = z.x - z.w / 2 + 24 + col * 36;
-    const y = z.y - 4 + row * 30;
+    const x = z.x - z.w / 2 + 28 + col * 44;
+    const y = z.y - 2 + row * 38;
     const color = STATE_COLOR[n.state];
     const stroke = SPRITE_STROKE[n.sprite_key] ?? 0x555555;
     const hasSprite = this.textures.exists(n.sprite_key);
@@ -113,10 +113,10 @@ export class TownScene extends Phaser.Scene {
     let v = this.npcs.get(id);
     if (!v) {
       const avatar = hasSprite
-        ? this.add.image(x, y, n.sprite_key).setDisplaySize(30, 30)
-        : this.add.rectangle(x, y, 26, 22, color).setStrokeStyle(2, stroke);
-      const dot = this.add.circle(x + 14, y - 12, 5, color).setStrokeStyle(1, 0xffffff);
-      const label = this.add.text(x - 16, y + 15, id, { fontSize: "9px", color: "#444" });
+        ? this.add.image(x, y, n.sprite_key).setDisplaySize(40, 40)
+        : this.add.rectangle(x, y, 28, 24, color).setStrokeStyle(2, stroke);
+      const dot = this.add.circle(x + 18, y - 16, 5, color).setStrokeStyle(1, 0xffffff);
+      const label = this.add.text(x - 18, y + 20, id, { fontSize: "9px", color: "#444" });
       // 悬停:通知 React 端展示 think 浮窗(ADR-002 对人全透明)
       avatar.setInteractive({ useHandCursor: true });
       avatar.on("pointerover", () => this.hoverCb(id, { x: avatar.x, y: avatar.y }));
@@ -125,8 +125,8 @@ export class TownScene extends Phaser.Scene {
       this.npcs.set(id, v);
     } else {
       this.tweens.add({ targets: v.avatar, x, y, duration: 280, ease: "Sine.easeInOut" });
-      this.tweens.add({ targets: v.dot, x: x + 14, y: y - 12, duration: 280 });
-      this.tweens.add({ targets: v.label, x: x - 16, y: y + 15, duration: 280 });
+      this.tweens.add({ targets: v.dot, x: x + 18, y: y - 16, duration: 280 });
+      this.tweens.add({ targets: v.label, x: x - 18, y: y + 20, duration: 280 });
       if (!v.usesSprite) {
         (v.avatar as Phaser.GameObjects.Rectangle).setFillStyle(color).setStrokeStyle(2, stroke);
       }
