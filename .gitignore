@@ -30,3 +30,6 @@ node_modules/
 dist/
 # Tauri 壳(待 Rust 就绪)
 src-tauri/target/
+
+# Vite Windows 临时配置文件
+vite.config.ts.timestamp-*.mjs

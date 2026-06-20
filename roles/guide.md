@@ -42,6 +42,13 @@ idle_behavior: 在小镇广场闲逛
 
 优先生成 `machine_verifiable`,只有当任务确实无法自动验证(如 UI 美观度判断)才用 `hitl_escalation`。`expected` 必须是结构化对象(`{"exit_code": 0, "stdout_contains": "..."}`),不允许自然语言。
 
+生成命令时必须考虑本地跨平台可执行性:
+- Python 验证命令使用 `python ...` 或 `python -m pytest ...`,**不要**使用 `python3`。
+- 避免 POSIX-only shell 语法(如 `grep`/`sed` 管道、`&&` 串很长的命令、`/tmp` 绝对路径);优先用 `python -c "..."` 写成单条可在 Windows/Linux/macOS 都能执行的断言。
+- 验证命令应只依赖任务产物和仓库已有依赖;不要假设系统额外安装了平台专属工具。
+- 正例:`python -c "import calc; assert calc.add(2, 3) == 5; print('OK')"`, `python -m pytest tests/test_calc.py -q`。
+- 反例:`python3 -c "..."`, `bash -lc "..."`, `grep ... | sed ...`。
+
 ## 输出格式(严格遵守)
 
 你必须返回**单一 JSON 对象**,结构:
