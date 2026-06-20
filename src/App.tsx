@@ -1,6 +1,6 @@
 // M3-5 完整 View:订阅事件 → 投影 → Phaser 小镇 + 悬停看 think + 任务板侧栏。
 import { useEffect, useMemo, useRef, useState } from "react";
-import { subscribe, type TerraEvent, type Phase } from "./ipc/subscribe";
+import { subscribe, postCommand, postHitl, type TerraEvent, type Phase } from "./ipc/subscribe";
 import { project, type ViewSnapshot, type NpcSnapshot, type TaskStatus } from "./game/protocol/projection";
 import { createTown, type TownScene } from "./game/town";
 import type Phaser from "phaser";
@@ -14,6 +14,19 @@ const STATUS_COLOR: Record<TaskStatus, string> = {
   merged: "#4a8c4a", blocked: "#e74c3c", rejected: "#c0392b",
 };
 
+// 待回应的 HITL = 没有 hitl_response 指向它的最新 hitl_request
+function computeOpenHitl(events: TerraEvent[]) {
+  const answered = new Set(
+    events.filter((e) => e.type === "hitl_response").map((e) => e.parent_event_id),
+  );
+  const open = events.filter((e) => e.type === "hitl_request" && !answered.has(e.event_id));
+  const last = open[open.length - 1];
+  return last
+    ? { event_id: last.event_id, question: String(last.payload.question ?? ""),
+        task_id: last.payload.task_id as string | undefined }
+    : null;
+}
+
 export function App() {
   const [base, setBase] = useState(DEFAULT_BASE);
   const [session, setSession] = useState("default");
@@ -22,6 +35,11 @@ export function App() {
   const [count, setCount] = useState(0);
   const [snap, setSnap] = useState<ViewSnapshot>(() => project([]));
   const [hover, setHover] = useState<{ id: string; x: number; y: number } | null>(null);
+  const [cmd, setCmd] = useState("");           // 指令输入框
+  const [busy, setBusy] = useState(false);      // 写请求进行中
+  // 未回应的 HITL 卡口(at_glass 闪烁时弹回应框)
+  const [openHitl, setOpenHitl] = useState<{ event_id: number; question: string; task_id?: string } | null>(null);
+  const [hitlText, setHitlText] = useState("");
 
   const subRef = useRef<{ close: () => void } | null>(null);
   const townHostRef = useRef<HTMLDivElement | null>(null);
@@ -53,6 +71,27 @@ export function App() {
     const next = project(eventsRef.current);
     setSnap(next);
     sceneRef.current?.applySnapshot(next);
+    setOpenHitl(computeOpenHitl(eventsRef.current));  // 刷新待回应 HITL
+  }
+
+  async function sendCommand() {
+    const text = cmd.trim();
+    if (!text || busy) return;
+    setBusy(true);
+    try { await postCommand(base, session, text); setCmd(""); }
+    catch (err) { alert("发送失败:" + err); }
+    finally { setBusy(false); }
+  }
+
+  async function answerHitl(decision: "answer" | "reject") {
+    if (!openHitl || busy) return;
+    setBusy(true);
+    try {
+      await postHitl(base, session, openHitl.event_id, decision,
+                     decision === "answer" ? hitlText.trim() : undefined);
+      setHitlText(""); setOpenHitl(null);  // 乐观清除;WS 收到 hitl_response 后亦会同步
+    } catch (err) { alert("回应失败:" + err); }
+    finally { setBusy(false); }
   }
 
   function connect() {
@@ -60,6 +99,7 @@ export function App() {
     eventsRef.current = [];
     setCount(0);
     setSnap(project([]));
+    setOpenHitl(null);
     setPhase("catchup");
     setConnected(true);
     subRef.current = subscribe(base, session, {
@@ -80,7 +120,7 @@ export function App() {
   return (
     <div style={{ padding: 16, fontFamily: "system-ui,sans-serif" }}>
       <h2 style={{ margin: "4px 0 12px" }}>
-        TerraWorks · 像素小镇 <small style={{ color: "#888" }}>(M3-5 完整)</small>
+        TerraWorks · 像素小镇 <small style={{ color: "#888" }}>(M4 双向交互)</small>
       </h2>
       <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 8 }}>
         <input value={base} onChange={(e) => setBase(e.target.value)}
@@ -95,6 +135,39 @@ export function App() {
           </b>
           {" "}｜ 事件:<b>{count}</b>
         </span>
+      </div>
+
+      {/* HITL 回应面板:有未回应的卡口时高亮(对应小镇里 at_glass 闪烁) */}
+      {openHitl && (
+        <div style={{
+          marginBottom: 10, padding: 12, border: "2px solid #e74c3c", borderRadius: 6,
+          background: "#fff5f5",
+        }}>
+          <div style={{ marginBottom: 6 }}>
+            🔔 <b>需要你回应</b>
+            {openHitl.task_id && <code style={{ marginLeft: 6 }}>{openHitl.task_id}</code>}
+            <div style={{ color: "#666", marginTop: 2 }}>{openHitl.question}</div>
+          </div>
+          <textarea value={hitlText} onChange={(e) => setHitlText(e.target.value)}
+                    placeholder="给整改指引(选 answer 时填)…"
+                    style={{ width: "100%", minHeight: 48, padding: 6, boxSizing: "border-box" }} />
+          <div style={{ marginTop: 6, display: "flex", gap: 8 }}>
+            <button disabled={busy || !hitlText.trim()} onClick={() => answerHitl("answer")}
+                    style={{ padding: "6px 16px" }}>提交整改(重做)</button>
+            <button disabled={busy} onClick={() => answerHitl("reject")}
+                    style={{ padding: "6px 16px", color: "#c0392b" }}>放弃该任务</button>
+          </div>
+        </div>
+      )}
+
+      {/* 指令栏:跟向导下新任务 / 追加指令 → POST /command */}
+      <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
+        <input value={cmd} onChange={(e) => setCmd(e.target.value)}
+               onKeyDown={(e) => { if (e.key === "Enter") sendCommand(); }}
+               placeholder="跟向导下个任务…(回车发送)"
+               style={{ flex: 1, padding: 8 }} disabled={busy} />
+        <button onClick={sendCommand} disabled={busy || !cmd.trim()}
+                style={{ padding: "8px 20px" }}>{busy ? "…" : "下指令"}</button>
       </div>
 
       <div style={{ display: "flex", gap: 16, alignItems: "flex-start" }}>

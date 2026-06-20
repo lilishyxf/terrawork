@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { fetchEvents, subscribe, type TerraEvent, type Phase } from "./subscribe";
+import { fetchEvents, subscribe, postCommand, postHitl, type TerraEvent, type Phase } from "./subscribe";
 
 const ev = (id: number): TerraEvent => ({ event_id: id, type: "guide_think", agent: "guide", payload: {} });
 
@@ -68,5 +68,34 @@ describe("subscribe (WS 两阶段)", () => {
     vi.stubGlobal("WebSocket", vi.fn((url: string) => (ws = new FakeWS(url))) as unknown as typeof WebSocket);
     subscribe("http://h:8000", "s", { onEvent: () => {} }, { since: 7 });
     expect(ws.url).toBe("ws://h:8000/sessions/s/live?since=7");
+  });
+});
+
+describe("写半边 postCommand / postHitl", () => {
+  it("postCommand POST /command 带 text,返回 event_id", async () => {
+    const fetchMock = vi.fn(async (url: string, init: RequestInit) => {
+      expect(url).toBe("http://h:8000/sessions/s/command");
+      expect(init.method).toBe("POST");
+      expect(JSON.parse(init.body as string)).toEqual({ text: "做个登录" });
+      return { ok: true, json: async () => ({ event_id: 5 }) } as Response;
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    expect(await postCommand("http://h:8000", "s", "做个登录")).toBe(5);
+  });
+
+  it("postHitl POST /hitl 带 hitl_event_id/decision/text", async () => {
+    const fetchMock = vi.fn(async (url: string, init: RequestInit) => {
+      expect(url).toBe("http://h:8000/sessions/s/hitl");
+      expect(JSON.parse(init.body as string)).toEqual(
+        { hitl_event_id: 8, decision: "answer", text: "用 hashlib" });
+      return { ok: true, json: async () => ({ event_id: 9 }) } as Response;
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    expect(await postHitl("http://h:8000", "s", 8, "answer", "用 hashlib")).toBe(9);
+  });
+
+  it("非 2xx 抛错", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => ({ ok: false, status: 400 }) as Response));
+    await expect(postCommand("http://h:8000", "s", "x")).rejects.toThrow("HTTP 400");
   });
 });

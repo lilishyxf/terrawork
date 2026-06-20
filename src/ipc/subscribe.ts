@@ -45,6 +45,29 @@ export async function fetchEvents(
   return all;
 }
 
+/** 写半边(ADR-022):下指令。POST /command → 后台 advance 驱动,结果经 WS 流回。 */
+export async function postCommand(baseUrl: string, sessionId: string, text: string): Promise<number> {
+  const r = await fetch(`${baseUrl}/sessions/${sessionId}/command`, {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ text }),
+  });
+  if (!r.ok) throw new Error(`command failed: HTTP ${r.status}`);
+  return (await r.json()).event_id as number;
+}
+
+/** 写半边(ADR-022):回应某个 HITL 卡口。decision: answer(带整改指引 text)| reject(放弃)。 */
+export async function postHitl(
+  baseUrl: string, sessionId: string,
+  hitlEventId: number, decision: "answer" | "reject", text?: string,
+): Promise<number> {
+  const r = await fetch(`${baseUrl}/sessions/${sessionId}/hitl`, {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ hitl_event_id: hitlEventId, decision, text }),
+  });
+  if (!r.ok) throw new Error(`hitl failed: HTTP ${r.status}`);
+  return (await r.json()).event_id as number;
+}
+
 /** WebSocket 两阶段订阅:补发积压(phase:catchup)→ caught_up → 实时(phase:live)。 */
 export function subscribe(
   baseUrl: string,
