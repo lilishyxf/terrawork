@@ -44,7 +44,7 @@ const SPRITE_STROKE: Record<string, number> = {
 const SPRITE_KEYS = Object.keys(SPRITE_STROKE);
 
 interface NpcView {
-  avatar: Phaser.GameObjects.Image | Phaser.GameObjects.Rectangle;
+  avatar: Phaser.GameObjects.Sprite | Phaser.GameObjects.Rectangle;
   dot: Phaser.GameObjects.Arc;     // 状态色点(精灵模式下用它表 state)
   label: Phaser.GameObjects.Text;
   usesSprite: boolean;
@@ -58,6 +58,7 @@ export class TownScene extends Phaser.Scene {
   private lastMergeEid = 0;
   private hitlPulse?: Phaser.GameObjects.Rectangle;
   private hoverCb: HoverCallback = () => {};
+  private animKeys = new Set<string>();   // 有帧动画的 sprite_key(竖向帧条)
   constructor() { super("Town"); }
 
   setHoverCallback(cb: HoverCallback) { this.hoverCb = cb; }
@@ -69,6 +70,7 @@ export class TownScene extends Phaser.Scene {
   }
 
   create() {
+    this._prepareSheets();  // 竖向帧条 → spritesheet + 循环动画(单帧静态图不动)
     // 区背景 + 标签
     for (const [key, z] of Object.entries(ZONE_POS)) {
       const bg = this.add.rectangle(z.x, z.y, z.w, z.h, 0xf5f0e6, 0.55)
@@ -81,6 +83,28 @@ export class TownScene extends Phaser.Scene {
     this.bell = this.add.text(40, 30, "🔔", { fontSize: "28px", color: "#a90" })
       .setAlpha(0.18);
     this.add.text(40, 60, "钟楼", { fontSize: "11px", color: "#aaa" }).setOrigin(0);
+  }
+
+  /** 竖向帧条精灵 → 切成 spritesheet + 建循环动画。
+   *  约定:正方形单帧从上到下堆叠;高 = N×宽(N≥2)即判定为帧条。
+   *  单帧(正方形 1:1)保持静态。这就是 2D 精灵标准格式(同泰拉/Stardew 的竖排帧)。 */
+  private _prepareSheets() {
+    for (const key of SPRITE_KEYS) {
+      if (!this.textures.exists(key)) continue;
+      const src = this.textures.get(key).getSourceImage() as HTMLImageElement;
+      const w = src.width, h = src.height;
+      if (w <= 0 || h <= w || h % w !== 0) continue;   // 非竖向帧条 → 静态
+      const frames = h / w;
+      if (frames < 2 || frames > 64) continue;
+      this.textures.remove(key);
+      this.textures.addSpriteSheet(key, src, { frameWidth: w, frameHeight: w });
+      this.anims.create({
+        key: `${key}_anim`,
+        frames: this.anims.generateFrameNumbers(key, { start: 0, end: frames - 1 }),
+        frameRate: 6, repeat: -1,
+      });
+      this.animKeys.add(key);
+    }
   }
 
   /** 用最新 snapshot 调和场景:create/move/recolor;触发 bell;HITL 闪烁。 */
@@ -112,9 +136,14 @@ export class TownScene extends Phaser.Scene {
 
     let v = this.npcs.get(id);
     if (!v) {
-      const avatar = hasSprite
-        ? this.add.image(x, y, n.sprite_key).setDisplaySize(40, 40)
-        : this.add.rectangle(x, y, 28, 24, color).setStrokeStyle(2, stroke);
+      let avatar: Phaser.GameObjects.Sprite | Phaser.GameObjects.Rectangle;
+      if (hasSprite) {
+        const sp = this.add.sprite(x, y, n.sprite_key).setDisplaySize(40, 40);
+        if (this.animKeys.has(n.sprite_key)) sp.play(`${n.sprite_key}_anim`);  // 多帧→循环播
+        avatar = sp;
+      } else {
+        avatar = this.add.rectangle(x, y, 28, 24, color).setStrokeStyle(2, stroke);
+      }
       const dot = this.add.circle(x + 18, y - 16, 5, color).setStrokeStyle(1, 0xffffff);
       const label = this.add.text(x - 18, y + 20, id, { fontSize: "9px", color: "#444" });
       // 悬停:通知 React 端展示 think 浮窗(ADR-002 对人全透明)

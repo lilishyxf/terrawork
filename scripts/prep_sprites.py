@@ -80,7 +80,13 @@ def main() -> None:
     if not pngs:
         raise SystemExit(f"{indir} 里没有 *.png")
     for src in pngs:
-        dst = outdir / src.name
+        # 规范输出名:无论原名多怪(如 'guide.png.png'),输出固定 <stem>.png 一个扩展名
+        stem = src.name
+        while stem.lower().endswith(".png"):
+            stem = stem[:-4]
+        if not stem:
+            print(f"  ! 跳过(空文件名): {src.name}"); continue
+        dst = outdir / f"{stem}.png"
         prep_one(src, dst, args.size, args.thresh)
         print(f"  ✓ {src.name} → {dst}  ({args.size}x{args.size})")
     print(f"\n完成 {len(pngs)} 张 → {outdir}")
