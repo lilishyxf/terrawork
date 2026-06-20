@@ -86,7 +86,8 @@ terraworks/
 - **M2.5 真并行已达成**（ADR-018）：互不依赖的多卡并发批派发（独立 worktree + 子进程 + `max_concurrent_agents`，计时实证真并发）。**M1 + M2 全部完成。**
 - **M2.7 角色感知专家委派已达成**（ADR-019）：双轴角色模型（功能 role × 专长 name）+ 向导按需求自动匹配专家（catalog 注入 + `assignee_specialty`）+ 9 个专家角色库（frontend/backend/database/desktop_shell/ai_engineer/rapid_proto/tech_writer/mobile + appsec）+ 双审查聚合（tailor 代码审查 + appsec 安全审查，全 pass 才 merge）。
 - **M3 像素小镇 View 已达成**（ADR-020/021）：状态-动画协议 + Python/TS 双端投影（parity 锁）、FastAPI 只读事件服务（catch-up 分页 + live WebSocket，轮询 SQLite 对子进程写入鲁棒）、Vite+React+Phaser 前端（色块版小镇：7 语义区 + 区间走动 + 状态色 + 钟楼敲钟）、悬停看 think（ADR-002 对人全透明）、任务板侧栏、HITL 闪烁。Tauri 壳待本机 Rust 就绪后包（Web 前端即 WebView 内容）。
-- **下一步**：M4 双向交互（玩家操作 → user_* 事件入 Session → 驱动 advance；点 NPC 干预、HITL 敲玻璃回应）——把"只读看"变成"双向编排"。
+- **M4 双向交互已达成**（ADR-022）：服务端从只读管道升级为编排宿主——写端点 `POST /command`、`POST /hitl`（append user_* 事件 → 后台 advance-runner 单飞驱动 → 经 WS live 流回，§1 红线#1）；编排器逐指令分解(支持追加) + 消费 hitl_response(answer→重派绕过 max_rework / reject→放弃)；前端指令栏 + HITL 回应弹窗。**"全程不开终端:下指令→看专家干活→卡住敲玻璃→回应→继续" 闭环。**
+- **下一步**：M5 打磨发布（走路帧动画、瓦片场景、Tauri 壳、演示视频含强杀重启、开源）。
 
 ## 后续里程碑
 
