@@ -7,6 +7,20 @@ import type Phaser from "phaser";
 
 const DEFAULT_BASE = "http://127.0.0.1:8000";
 
+// sprite_key(= 角色名) → 中文职位(取自 roles/*.md 的 display_name)
+const ROLE_TITLE: Record<string, string> = {
+  guide: "向导", blaster: "爆破专家", tailor: "裁缝", appsec: "应用安全工程师",
+  frontend: "前端开发者", backend: "后端架构师", database: "数据库优化器",
+  desktop_shell: "桌面壳工程师", ai_engineer: "AI 工程师", rapid_proto: "快速原型机",
+  tech_writer: "技术写作", mobile: "移动应用构建器", merchant: "商人",
+};
+// 实例 id(如 tailor#1)→ "裁缝 #1";取不到职位则原样
+function roleTitle(id: string, spriteKey: string): string {
+  const t = ROLE_TITLE[spriteKey];
+  const hash = id.includes("#") ? " #" + id.split("#")[1] : "";
+  return t ? t + hash : id;
+}
+
 // task_board 列表的状态颜色(与 Phaser 色板呼应)
 const STATUS_COLOR: Record<TaskStatus, string> = {
   queued: "#bdbdbd", building: "#2e86c1", awaiting_review: "#e67e22",
@@ -201,11 +215,13 @@ export function App() {
         </aside>
       </div>
 
-      <p style={{ fontSize: 11, color: "#999", marginTop: 8 }}>
-        精灵 = 职业（缺图回退色块，PNG 放 public/sprites/&lt;key&gt;.png）｜
-        角上<b>状态色点</b>:idle🟢 decomposing🟡 thinking🟣 working🔵 rework🔴
-        awaiting_review🟠 verifying🟪 reviewing🟩 hitl🔥 error⚠️ ｜
-        悬停看 think（ADR-002）｜ HITL 屏幕前闪烁 ｜ merge 钟楼敲钟。
+      <p style={{ fontSize: 12, color: "#888", marginTop: 8 }}>
+        💡 悬停任意小人,看它的<b>职位</b>和此刻的<b>思考</b>。脚边的小圆点是它的状态——
+        <span style={{ color: "#4a8c4a" }}>●空闲</span>{" "}
+        <span style={{ color: "#2e86c1" }}>●干活中</span>{" "}
+        <span style={{ color: "#9b59b6" }}>●验证</span>{" "}
+        <span style={{ color: "#16a085" }}>●审查</span>{" "}
+        <span style={{ color: "#e74c3c" }}>●需要你</span>。
       </p>
     </div>
   );
@@ -223,10 +239,9 @@ function ThinkTooltip({ x, y, id, npc }: { x: number; y: number; id: string; npc
       }}
     >
       <div style={{ marginBottom: 4 }}>
-        <b>{id}</b>{" "}
+        <b>{roleTitle(id, npc.sprite_key)}</b>{" "}
         <small style={{ color: "#aaa" }}>
-          {npc.kind} · {npc.state} · {npc.zone}
-          {npc.task_id && <> · <code>{npc.task_id}</code></>}
+          {npc.state}{npc.task_id && <> · <code>{npc.task_id}</code></>}
         </small>
       </div>
       {npc.think ? (

@@ -27,6 +27,8 @@ const ZONE_POS: Record<Zone, { x: number; y: number; w: number; h: number; label
 const DRAWN_ZONES: Zone[] = ["at_glass", "lobby", "verify_room", "workshop", "review_room", "yard"];
 // 可配室内图的区:public/rooms/<zone>.png(缺图回退半透明色框)
 const ROOM_ZONES: Zone[] = ["lobby", "verify_room", "workshop", "review_room", "yard"];
+// 室内房间:家具占下半,NPC 站房间上部空地(否则与家具重叠像被挡住)
+const TOP_STAND: Zone[] = ["verify_room", "workshop", "review_room"];
 
 // state → 色块颜色(色块阶段的语义编码;换皮后由精灵动画承担)
 const STATE_COLOR: Record<NpcState, number> = {
@@ -56,7 +58,6 @@ const SPRITE_KEYS = Object.keys(SPRITE_STROKE);
 interface NpcView {
   avatar: Phaser.GameObjects.Sprite | Phaser.GameObjects.Rectangle;
   dot: Phaser.GameObjects.Arc;     // 状态色点(精灵模式下用它表 state)
-  label: Phaser.GameObjects.Text;
   usesSprite: boolean;
 }
 
@@ -164,7 +165,10 @@ export class TownScene extends Phaser.Scene {
     // 同区横向排开,每行最多 5 个
     const col = idx % 5, row = Math.floor(idx / 5);
     const x = z.x - z.w / 2 + 30 + col * 46;
-    const y = z.y + 2 + row * 54;
+    // 室内房间贴上部空地站(避开下半家具);其余区按中心
+    const y = TOP_STAND.includes(n.zone)
+      ? z.y - z.h / 2 + 30 + row * 46
+      : z.y + 2 + row * 54;
     const color = STATE_COLOR[n.state];
     const stroke = SPRITE_STROKE[n.sprite_key] ?? 0x555555;
     const hasSprite = this.textures.exists(n.sprite_key);
@@ -191,17 +195,15 @@ export class TownScene extends Phaser.Scene {
         avatar = this.add.rectangle(x, y, 28, 24, color).setStrokeStyle(2, stroke);
       }
       const dot = this.add.circle(x + 15, y - 22, 5, color).setStrokeStyle(1, 0xffffff);
-      const label = this.add.text(x - 18, y + 28, id, { fontSize: "9px", color: "#444" });
-      // 悬停:通知 React 端展示 think 浮窗(ADR-002 对人全透明)
+      // 悬停:通知 React 端展示职位/think 浮窗(ADR-002 对人全透明)
       avatar.setInteractive({ useHandCursor: true });
       avatar.on("pointerover", () => this.hoverCb(id, { x: avatar.x, y: avatar.y }));
       avatar.on("pointerout", () => this.hoverCb(null, null));
-      v = { avatar, dot, label, usesSprite: hasSprite };
+      v = { avatar, dot, usesSprite: hasSprite };
       this.npcs.set(id, v);
     } else {
       this.tweens.add({ targets: v.avatar, x, y, duration: 280, ease: "Sine.easeInOut" });
       this.tweens.add({ targets: v.dot, x: x + 15, y: y - 22, duration: 280 });
-      this.tweens.add({ targets: v.label, x: x - 18, y: y + 28, duration: 280 });
       if (!v.usesSprite) {
         (v.avatar as Phaser.GameObjects.Rectangle).setFillStyle(color).setStrokeStyle(2, stroke);
       }
