@@ -15,7 +15,7 @@ const W = 880, H = 560;
 
 // 语义区中心位置(相对画布)。同区多 NPC 自动错位避叠。
 const ZONE_POS: Record<Zone, { x: number; y: number; w: number; h: number; label: string }> = {
-  at_glass:    { x: 440, y: 26,  w: 320, h: 28,  label: "屏幕前(HITL)" },
+  at_glass:    { x: 440, y: 26,  w: 320, h: 28,  label: "敲玻璃求助" },
   lobby:       { x: 440, y: 130, w: 300, h: 140, label: "大堂(向导)" },   // 变大、居中:指挥中枢
   verify_room: { x: 150, y: 340, w: 240, h: 150, label: "验证间" },        // 填左
   workshop:    { x: 450, y: 340, w: 290, h: 150, label: "工坊小屋" },
@@ -65,8 +65,6 @@ export type HoverCallback = (npcId: string | null, screen: { x: number; y: numbe
 
 export class TownScene extends Phaser.Scene {
   private npcs = new Map<string, NpcView>();
-  private bell?: Phaser.GameObjects.Text;
-  private lastMergeEid = 0;
   private hitlPulse?: Phaser.GameObjects.Rectangle;
   private hoverCb: HoverCallback = () => {};
   constructor() { super("Town"); }
@@ -138,22 +136,15 @@ export class TownScene extends Phaser.Scene {
         this.hitlPulse = this.add.rectangle(z.x, z.y, z.w, z.h, 0xffe0e0, 0).setDepth(-3);
       }
     }
-    // 钟楼(左上角地标:merge 成功时敲钟闪亮)
-    this.bell = this.add.text(60, 70, "🔔", { fontSize: "44px" }).setOrigin(0.5).setAlpha(0.25);
-    this.add.text(60, 102, "钟楼", { fontSize: "12px", color: "#5a4f3a" }).setOrigin(0.5);
   }
 
-  /** 用最新 snapshot 调和场景:create/move/recolor;触发 bell;HITL 闪烁。 */
+  /** 用最新 snapshot 调和场景:create/move/recolor;HITL 闪烁。 */
   applySnapshot(snap: ViewSnapshot) {
     const occ: Record<Zone, number> = {} as Record<Zone, number>;
     let hitlActive = false;
     for (const [id, n] of Object.entries(snap.npcs)) {
       this._placeOrUpdate(id, n, occ);
       if (n.state === "hitl") hitlActive = true;
-    }
-    if (snap.last_merge && snap.last_merge.event_id !== this.lastMergeEid) {
-      this.lastMergeEid = snap.last_merge.event_id;
-      this._ringBell();
     }
     this._setHitlPulse(hitlActive);
   }
@@ -210,14 +201,6 @@ export class TownScene extends Phaser.Scene {
     }
     v.dot.setFillStyle(color);                                 // 状态色点(始终表 state)
     v.avatar.setAlpha(n.state === "thinking" ? 0.8 : 1);       // thinking 半透明
-  }
-
-  private _ringBell() {
-    if (!this.bell) return;
-    this.tweens.add({
-      targets: this.bell, alpha: 1, duration: 200, yoyo: true, hold: 600,
-      onComplete: () => this.bell?.setAlpha(0.18),
-    });
   }
 
   private _hitlTween?: Phaser.Tweens.Tween;
