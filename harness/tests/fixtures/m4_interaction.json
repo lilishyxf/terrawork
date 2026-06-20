@@ -1,0 +1,35 @@
+{
+  "id": "m4_interaction",
+  "milestone": "M4.1",
+  "description": "双向交互写半边契约(ADR-022)。锁 hitl_response / 追加 user_command 的事件形态:hitl_response 经 parent_event_id 指向 hitl_request、decision∈{answer,reject};追加第二条 user_command 合法。data-scope 锁事件契约;回应→返工/放弃、追加指令→新分解等 runtime 由 M4-2/3 e2e 验证。",
+  "created": "2026-06-21",
+
+  "events": [
+    {"event_id": 1, "session_id": "m4", "ts": "2026-06-21T00:00:00Z", "agent": "user", "type": "user_command", "parent_event_id": null, "payload": {"text": "做个登录"}},
+    {"event_id": 2, "session_id": "m4", "ts": "2026-06-21T00:00:10Z", "agent": "guide", "type": "guide_delegate", "parent_event_id": 1, "payload": {"task_card": {"task_id": "t-login", "assignee_role": "builder", "objective": "实现 login.py", "output_format": "login.py", "allowed_tools": ["read", "write", "bash"], "boundaries": ["只用标准库"], "verification": [{"type": "machine_verifiable", "command": "python -c \"import login\"", "expected": {"exit_code": 0}}]}}},
+    {"event_id": 8, "session_id": "m4", "ts": "2026-06-21T00:02:00Z", "agent": "guide", "type": "hitl_request", "parent_event_id": 2, "payload": {"task_id": "t-login", "reason": "返工耗尽,需人工指引", "question": "审查持续不通过,请给整改方向或放弃。"}},
+    {"event_id": 9, "session_id": "m4", "ts": "2026-06-21T00:05:00Z", "agent": "user", "type": "hitl_response", "parent_event_id": 8, "payload": {"decision": "answer", "text": "密码改用 hashlib 哈希,别存明文"}},
+    {"event_id": 10, "session_id": "m4", "ts": "2026-06-21T00:06:00Z", "agent": "user", "type": "user_command", "parent_event_id": null, "payload": {"text": "再加一个登出接口"}}
+  ],
+
+  "invariants": [
+    {"id": "INV-1", "name": "hitl_response_schema", "must": true, "scope": "data",
+     "description": "hitl_response 过 events.schema(p_hitl_response):decision∈{approve,reject,answer}、parent_event_id 为整数且指向同 session 的 hitl_request"},
+    {"id": "INV-2", "name": "followup_command_schema", "must": true, "scope": "data",
+     "description": "追加的第二条 user_command 过 schema(支持下多条指令)"},
+    {"id": "INV-3", "name": "hitl_response_links_request", "must": true, "scope": "data",
+     "description": "hitl_response.parent_event_id 确实指向一条 hitl_request 事件"},
+    {"id": "INV-4", "name": "answer_redispatches_builder", "must": true, "scope": "runtime",
+     "description": "decision=answer → 重派该任务 builder 返工(注入 text 为 rework_notes),绕过 max_rework。e2e 验证。"},
+    {"id": "INV-5", "name": "reject_abandons_task", "must": true, "scope": "runtime",
+     "description": "decision=reject → 任务终态 rejected,无新派发。e2e 验证。"},
+    {"id": "INV-6", "name": "followup_triggers_decompose", "must": true, "scope": "runtime",
+     "description": "追加 user_command → 触发新分解,新任务进板,不影响既有任务。e2e 验证。"}
+  ],
+
+  "notes": [
+    "event_id 8/9 跳号示意真实序号会自增;投影/编排只读 type/agent/payload/parent。",
+    "hitl_response 必须带 parent_event_id(整数,ADR-007 双约束),指向 hitl_request —— 这是'回应哪个卡口'的唯一绑定。",
+    "v0.1 只用 answer/reject;approve(强制合并等)留后续。"
+  ]
+}
