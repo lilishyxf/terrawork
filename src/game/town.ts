@@ -78,6 +78,17 @@ export class TownScene extends Phaser.Scene {
   }
 
   create() {
+    // 帧条 → 循环动画:跳过 frame 0(站立),循环其余帧(走路/动作)。
+    // 注:若某精灵尾部有"说话/特殊"帧导致循环里有怪动作,缩小 end 即可(或加 walk 区间到元数据)。
+    for (const [key, m] of Object.entries(META)) {
+      if (this.textures.exists(key) && m.frames >= 2) {
+        this.anims.create({
+          key: `${key}_walk`,
+          frames: this.anims.generateFrameNumbers(key, { start: 1, end: m.frames - 1 }),
+          frameRate: 8, repeat: -1,
+        });
+      }
+    }
     // 区背景 + 标签
     for (const [key, z] of Object.entries(ZONE_POS)) {
       const bg = this.add.rectangle(z.x, z.y, z.w, z.h, 0xf5f0e6, 0.55)
@@ -128,6 +139,7 @@ export class TownScene extends Phaser.Scene {
         const sp = this.add.sprite(x, y, n.sprite_key, 0);
         if (m) sp.setDisplaySize(DRAW_H * (m.frameWidth / m.frameHeight), DRAW_H);
         else sp.setDisplaySize(40, 40);
+        if (this.anims.exists(`${n.sprite_key}_walk`)) sp.play(`${n.sprite_key}_walk`);  // 循环动画
         avatar = sp;
       } else {
         avatar = this.add.rectangle(x, y, 28, 24, color).setStrokeStyle(2, stroke);
