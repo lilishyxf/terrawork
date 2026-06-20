@@ -1,0 +1,67 @@
+{
+  "ai_engineer": {
+    "frameWidth": 48,
+    "frameHeight": 58,
+    "frames": 23
+  },
+  "appsec": {
+    "frameWidth": 40,
+    "frameHeight": 56,
+    "frames": 26
+  },
+  "backend": {
+    "frameWidth": 40,
+    "frameHeight": 56,
+    "frames": 25
+  },
+  "blaster": {
+    "frameWidth": 52,
+    "frameHeight": 56,
+    "frames": 25
+  },
+  "database": {
+    "frameWidth": 40,
+    "frameHeight": 56,
+    "frames": 26
+  },
+  "desktop_shell": {
+    "frameWidth": 40,
+    "frameHeight": 56,
+    "frames": 26
+  },
+  "frontend": {
+    "frameWidth": 46,
+    "frameHeight": 56,
+    "frames": 25
+  },
+  "guide": {
+    "frameWidth": 40,
+    "frameHeight": 58,
+    "frames": 23
+  },
+  "merchant": {
+    "frameWidth": 40,
+    "frameHeight": 56,
+    "frames": 25
+  },
+  "mobile": {
+    "frameWidth": 40,
+    "frameHeight": 56,
+    "frames": 25
+  },
+  "rapid_proto": {
+    "frameWidth": 48,
+    "frameHeight": 58,
+    "frames": 23
+  },
+  "tailor": {
+    "frameWidth": 40,
+    "frameHeight": 64,
+    "frames": 25
+  },
+  "tech_writer": {
+    "frameWidth": 40,
+    "frameHeight": 64,
+    "frames": 26
+  }
+}

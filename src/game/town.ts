@@ -4,6 +4,11 @@
 // NPC 当前 state 由角上的状态色点表示(精灵=职业身份静态,状态=色点)。
 import Phaser from "phaser";
 import type { NpcSnapshot, NpcState, Zone, ViewSnapshot } from "./protocol/projection";
+import FRAME_META from "./sprite-frames.json";
+
+type FrameMeta = Record<string, { frameWidth: number; frameHeight: number; frames: number }>;
+const META = FRAME_META as FrameMeta;
+const DRAW_H = 52; // 精灵目标显示高(按帧宽高比定宽,不压扁)
 
 const W = 880, H = 560;
 
@@ -58,19 +63,21 @@ export class TownScene extends Phaser.Scene {
   private lastMergeEid = 0;
   private hitlPulse?: Phaser.GameObjects.Rectangle;
   private hoverCb: HoverCallback = () => {};
-  private animKeys = new Set<string>();   // 有帧动画的 sprite_key(竖向帧条)
   constructor() { super("Town"); }
 
   setHoverCallback(cb: HoverCallback) { this.hoverCb = cb; }
 
   preload() {
-    // 缺图静默(回退色块),不刷 console
-    this.load.on("loaderror", () => {});
-    for (const key of SPRITE_KEYS) this.load.image(key, `/sprites/${key}.png`);
+    this.load.on("loaderror", () => {});  // 缺图静默 → 回退色块
+    for (const key of SPRITE_KEYS) {
+      const m = META[key];
+      if (m) this.load.spritesheet(key, `/sprites/${key}.png`,
+                                   { frameWidth: m.frameWidth, frameHeight: m.frameHeight });
+      else this.load.image(key, `/sprites/${key}.png`);  // 无帧元数据 → 当单帧
+    }
   }
 
   create() {
-    this._prepareSheets();  // 竖向帧条 → spritesheet + 循环动画(单帧静态图不动)
     // 区背景 + 标签
     for (const [key, z] of Object.entries(ZONE_POS)) {
       const bg = this.add.rectangle(z.x, z.y, z.w, z.h, 0xf5f0e6, 0.55)
@@ -83,28 +90,6 @@ export class TownScene extends Phaser.Scene {
     this.bell = this.add.text(40, 30, "🔔", { fontSize: "28px", color: "#a90" })
       .setAlpha(0.18);
     this.add.text(40, 60, "钟楼", { fontSize: "11px", color: "#aaa" }).setOrigin(0);
-  }
-
-  /** 竖向帧条精灵 → 切成 spritesheet + 建循环动画。
-   *  约定:正方形单帧从上到下堆叠;高 = N×宽(N≥2)即判定为帧条。
-   *  单帧(正方形 1:1)保持静态。这就是 2D 精灵标准格式(同泰拉/Stardew 的竖排帧)。 */
-  private _prepareSheets() {
-    for (const key of SPRITE_KEYS) {
-      if (!this.textures.exists(key)) continue;
-      const src = this.textures.get(key).getSourceImage() as HTMLImageElement;
-      const w = src.width, h = src.height;
-      if (w <= 0 || h <= w || h % w !== 0) continue;   // 非竖向帧条 → 静态
-      const frames = h / w;
-      if (frames < 2 || frames > 64) continue;
-      this.textures.remove(key);
-      this.textures.addSpriteSheet(key, src, { frameWidth: w, frameHeight: w });
-      this.anims.create({
-        key: `${key}_anim`,
-        frames: this.anims.generateFrameNumbers(key, { start: 0, end: frames - 1 }),
-        frameRate: 6, repeat: -1,
-      });
-      this.animKeys.add(key);
-    }
   }
 
   /** 用最新 snapshot 调和场景:create/move/recolor;触发 bell;HITL 闪烁。 */
@@ -128,8 +113,8 @@ export class TownScene extends Phaser.Scene {
     occ[n.zone] = idx + 1;
     // 同区横向排开,每行最多 5 个
     const col = idx % 5, row = Math.floor(idx / 5);
-    const x = z.x - z.w / 2 + 28 + col * 44;
-    const y = z.y - 2 + row * 38;
+    const x = z.x - z.w / 2 + 30 + col * 46;
+    const y = z.y + 2 + row * 54;
     const color = STATE_COLOR[n.state];
     const stroke = SPRITE_STROKE[n.sprite_key] ?? 0x555555;
     const hasSprite = this.textures.exists(n.sprite_key);
@@ -138,14 +123,17 @@ export class TownScene extends Phaser.Scene {
     if (!v) {
       let avatar: Phaser.GameObjects.Sprite | Phaser.GameObjects.Rectangle;
       if (hasSprite) {
-        const sp = this.add.sprite(x, y, n.sprite_key).setDisplaySize(40, 40);
-        if (this.animKeys.has(n.sprite_key)) sp.play(`${n.sprite_key}_anim`);  // 多帧→循环播
+        // frame 0 = 站立帧;按帧宽高比定尺寸,不压扁(走路动画待朋友给帧区间再开)
+        const m = META[n.sprite_key];
+        const sp = this.add.sprite(x, y, n.sprite_key, 0);
+        if (m) sp.setDisplaySize(DRAW_H * (m.frameWidth / m.frameHeight), DRAW_H);
+        else sp.setDisplaySize(40, 40);
         avatar = sp;
       } else {
         avatar = this.add.rectangle(x, y, 28, 24, color).setStrokeStyle(2, stroke);
       }
-      const dot = this.add.circle(x + 18, y - 16, 5, color).setStrokeStyle(1, 0xffffff);
-      const label = this.add.text(x - 18, y + 20, id, { fontSize: "9px", color: "#444" });
+      const dot = this.add.circle(x + 15, y - 22, 5, color).setStrokeStyle(1, 0xffffff);
+      const label = this.add.text(x - 18, y + 28, id, { fontSize: "9px", color: "#444" });
       // 悬停:通知 React 端展示 think 浮窗(ADR-002 对人全透明)
       avatar.setInteractive({ useHandCursor: true });
       avatar.on("pointerover", () => this.hoverCb(id, { x: avatar.x, y: avatar.y }));
@@ -154,8 +142,8 @@ export class TownScene extends Phaser.Scene {
       this.npcs.set(id, v);
     } else {
       this.tweens.add({ targets: v.avatar, x, y, duration: 280, ease: "Sine.easeInOut" });
-      this.tweens.add({ targets: v.dot, x: x + 18, y: y - 16, duration: 280 });
-      this.tweens.add({ targets: v.label, x: x - 18, y: y + 20, duration: 280 });
+      this.tweens.add({ targets: v.dot, x: x + 15, y: y - 22, duration: 280 });
+      this.tweens.add({ targets: v.label, x: x - 18, y: y + 28, duration: 280 });
       if (!v.usesSprite) {
         (v.avatar as Phaser.GameObjects.Rectangle).setFillStyle(color).setStrokeStyle(2, stroke);
       }
