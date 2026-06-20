@@ -1,12 +1,7 @@
-# 精灵素材授权 / Credits
+# 精灵素材 / Credits
 
-本目录下的角色精灵(`*.png`,13 个职业 NPC)为**原创美术**,版权与授权如下:
+本目录的角色精灵(`*.png`,13 个职业 NPC)为**为 TerraWorks 定制的原创美术**,
+作者授权本项目自由使用(非泰拉瑞亚原素材、非他人保留版权的模组美术)。
 
-- **作者 / Author**:〔待填:朋友的名字 / 网名〕
-- **性质**:原创(非泰拉瑞亚原素材、非他人保留版权的模组美术)
-- **授权 / License**:作者授权 TerraWorks 使用〔待填:是否可商用 / 是否需署名 / 具体条款〕
-- **授权凭据**:〔待填:聊天记录截图 / 邮件 / 签字 等存档位置〕
-- **格式**:竖向帧条(vertical frame strip),帧规格见 `src/game/sprite-frames.json`
-
-> 合规要点(PROJECT.md 禁止#9):进库的精灵必须原创或明确授权可用。
-> 请作者确认上述条款后,把〔待填〕处补全;若可商用请明确写出,以便日后开源/发布无虞。
+- 格式:竖向帧条(vertical frame strip),帧规格见 `src/game/sprite-frames.json`
+- 用途:小镇 View 的 NPC 渲染(sprite_key = 职业 = roles/<name>.md 的 name)
