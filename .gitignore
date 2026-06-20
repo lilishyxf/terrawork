@@ -37,3 +37,6 @@ vite.config.ts.timestamp-*.mjs
 # 精灵原图(白底,prep_sprites.py 的输入,不入库;产物 public/sprites|portraits 入库)
 sprites_raw/
 portraits_raw/
+
+# 帧拼图(人工识别帧范围用,临时)
+frame_montage_*.png
