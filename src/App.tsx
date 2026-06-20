@@ -38,7 +38,13 @@ export function App() {
       });
       queueMicrotask(() => sceneRef.current?.applySnapshot(project([])));
     }
-    return () => { subRef.current?.close(); gameRef.current?.destroy(true); };
+    return () => {
+      subRef.current?.close();
+      subRef.current = null;
+      gameRef.current?.destroy(true);
+      gameRef.current = null;
+      sceneRef.current = null;
+    };
   }, []);
 
   function pushEvent(e: TerraEvent) {

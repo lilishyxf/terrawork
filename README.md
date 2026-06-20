@@ -31,7 +31,8 @@
 | M2.6 真隔离 | per-card worktree + 真 git merge（红线 #6）+ merge-then-verify + NPC 子进程隔离 | ✅ 达成（ADR-016/017，离线 67 passed） |
 | M2.5 真并行 | 多实例并发执行（独立卡）+ `max_concurrent_agents` | ✅ 达成（ADR-018，计时实证并发，70 passed） |
 | M2.7 专家委派 | 双轴角色（功能×专长）+ 向导自动匹配专家 + 双审查聚合 | ✅ 达成（ADR-019，9 专家角色库，80 passed） |
-| M3+ | 像素小镇 View / 双向交互 / 打磨发布 | ⬜ 未开始 |
+| M3 像素小镇 View | 状态-动画协议+投影 / FastAPI 订阅 / Vite+React+Phaser 前端 / 悬停看 think / 任务板 / HITL 闪烁 / 钟楼敲钟 | ✅ 达成（ADR-020/021，Python 92 + vitest 11 passed） |
+| M4+ | 双向交互（玩家→user_* 事件）/ 打磨发布 | ⬜ 未开始 |
 
 关键决策与偏差均记录在 [docs/adr/](docs/adr/)。M2.6 收尾了 §1 红线 #6（Sandbox 不共享可写 FS、跨 NPC 交换只走 git merge）：ADR-016（真 git merge + per-card worktree + merge-then-verify）superseded 了 ADR-014/015 的文件系统让步，ADR-017（NPC 子进程隔离）收尾了 ADR-012 的进程隔离。
 
