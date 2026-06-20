@@ -158,10 +158,13 @@ def _has_later(events, after_eid, types, *, task_id=None):
 def _decide(events, max_rework):
     """返回下一个可行动 (kind, ctx) 或 None(静止)。round-aware:用"无更晚配对事件"判断,
     支持同一 task 多轮(返工)而不死循环。"""
-    has_cmd = any(e["type"] == "user_command" for e in events)
-    # 1. user_command 未分解(且 guide 未走 hitl 兜底)
-    if has_cmd and not any(e["type"] in ("guide_delegate", "hitl_request") for e in events):
-        return ("guide_decompose", next(e for e in events if e["type"] == "user_command"))
+    # 1. 逐指令分解(ADR-022):分解每一条尚未处理的 user_command(支持追加指令)。
+    #    "已处理" = 有事件以该 command 为 parent(guide_step 的 guide_think.parent=trigger,
+    #    或分解失败的 hitl 兜底.parent=trigger)。
+    _ids_with_child = {e.get("parent_event_id") for e in events}
+    for cmd in events:
+        if cmd["type"] == "user_command" and cmd["event_id"] not in _ids_with_child:
+            return ("guide_decompose", cmd)
 
     assigns = [e for e in events if e["type"] == "guide_assign"]
     # builder 实例集合(按各卡专长泛化,ADR-019;不再写死 merchant)
@@ -260,6 +263,28 @@ def _decide(events, max_rework):
         if reworks_done < max_rework:
             return ("rework", reject_ev)
         return ("escalate_reject", reject_ev)
+
+    # 6. 双向交互(ADR-022):消费 hitl_response —— answer→重派该任务 builder(注入 text 整改指引,
+    #    人授权绕过 max_rework);reject→任务终态放弃(无派发);approve v0.1 不开。一条 response 只处理一次。
+    for resp in events:
+        if resp["type"] != "hitl_response" or resp["payload"].get("decision") != "answer":
+            continue
+        hreq = next((e for e in events if e["event_id"] == resp.get("parent_event_id")
+                     and e["type"] == "hitl_request"), None)
+        if hreq is None:
+            continue
+        tid = hreq["payload"].get("task_id")
+        if tid is None:
+            continue  # 无 task 的 hitl(如分解失败)v0.1 不处理 answer→rework
+        d = _delegate_for_task(events, tid)
+        if d is None:
+            continue
+        inst = _builder_instance(events, d)
+        already = any(a["payload"].get("task_card_event_id") == d["event_id"]
+                      and a["payload"].get("assignee_instance") == inst
+                      and a["event_id"] > resp["event_id"] for a in assigns)
+        if not already:
+            return ("hitl_rework", resp)
 
     return None
 
@@ -456,6 +481,28 @@ def advance(
                 payload={"task_id": tid,
                          "reason": f"返工 {max_rework} 次后审查仍 reject,上抬人工",
                          "question": f"任务 {tid} 经 {max_rework} 轮返工仍未通过审查;notes: {rv['payload'].get('notes', '')}"},
+            )
+
+        elif kind == "hitl_rework":
+            # ADR-022:人在 HITL 给了整改指引(answer)→ 重派该任务 builder(注入 text,绕过 max_rework)
+            resp = ctx
+            hreq = next(e for e in events if e["event_id"] == resp["parent_event_id"])
+            d = _delegate_for_task(events, hreq["payload"]["task_id"])
+            card = d["payload"]["task_card"]
+            inst = _builder_instance(events, d)
+            ga = session_store.append_event(
+                agent="guide", type="guide_assign", parent_event_id=resp["event_id"],
+                session_id=resp["session_id"],
+                payload={"task_card_event_id": d["event_id"], "assignee_instance": inst},
+            )
+            scripted = (builder_scripted_actions or {}).get(card["task_id"])
+            reuse = (worktrees_base / instance_to_slug(inst)).is_dir()
+            _run_builder(
+                npc_in_subprocess, inst=inst, card=card, store=session_store,
+                trigger_eid=ga["event_id"], repo_root=repo_root,
+                worktrees_base=worktrees_base, llm_client=llm_client,
+                scripted=scripted, reuse=reuse,
+                rework_notes=resp["payload"].get("text"),
             )
 
     return wake(session_store, worktrees_base=worktrees_base)
