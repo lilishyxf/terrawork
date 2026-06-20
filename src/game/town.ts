@@ -1,7 +1,7 @@
-// M3-4 像素小镇渲染(Phaser 3,色块版)。
-// 按 ADR-020 把 NPC 放进 7 个语义区,事件来时按 state 切换颜色 + 在区间走动。
-// 色块阶段:每个 NPC = 一个矩形 + 标签;sprite-key 决定颜色。
-// M3-5/M5 换皮:矩形换精灵,key 不变。
+// M3-4/M3.6 像素小镇渲染(Phaser 3)。
+// 按 ADR-020 把 NPC 放进 7 个语义区,事件来时在区间走动。
+// M3.6:有 PNG 精灵则用精灵(public/sprites/<sprite_key>.png),缺图回退色块;
+// NPC 当前 state 由角上的状态色点表示(精灵=职业身份静态,状态=色点)。
 import Phaser from "phaser";
 import type { NpcSnapshot, NpcState, Zone, ViewSnapshot } from "./protocol/projection";
 
@@ -32,7 +32,7 @@ const STATE_COLOR: Record<NpcState, number> = {
   error:           0xff2222,
 };
 
-// sprite-key → 默认描边色(职业可辨)
+// sprite-key → 默认描边色(无精灵时的职业可辨色)
 const SPRITE_STROKE: Record<string, number> = {
   guide: 0xffd700, blaster: 0xff7043, tailor: 0x66bb6a, appsec: 0xab47bc,
   frontend: 0x29b6f6, backend: 0x5c6bc0, database: 0x8d6e63, desktop_shell: 0x78909c,
@@ -40,7 +40,15 @@ const SPRITE_STROKE: Record<string, number> = {
   merchant: 0xbdbdbd,
 };
 
-interface NpcView { rect: Phaser.GameObjects.Rectangle; label: Phaser.GameObjects.Text; }
+// 需预加载的精灵 key(= 全部职业;缺图静默回退色块)
+const SPRITE_KEYS = Object.keys(SPRITE_STROKE);
+
+interface NpcView {
+  avatar: Phaser.GameObjects.Image | Phaser.GameObjects.Rectangle;
+  dot: Phaser.GameObjects.Arc;     // 状态色点(精灵模式下用它表 state)
+  label: Phaser.GameObjects.Text;
+  usesSprite: boolean;
+}
 
 export type HoverCallback = (npcId: string | null, screen: { x: number; y: number } | null) => void;
 
@@ -53,6 +61,12 @@ export class TownScene extends Phaser.Scene {
   constructor() { super("Town"); }
 
   setHoverCallback(cb: HoverCallback) { this.hoverCb = cb; }
+
+  preload() {
+    // 缺图静默(回退色块),不刷 console
+    this.load.on("loaderror", () => {});
+    for (const key of SPRITE_KEYS) this.load.image(key, `/sprites/${key}.png`);
+  }
 
   create() {
     // 区背景 + 标签
@@ -94,25 +108,31 @@ export class TownScene extends Phaser.Scene {
     const y = z.y - 4 + row * 30;
     const color = STATE_COLOR[n.state];
     const stroke = SPRITE_STROKE[n.sprite_key] ?? 0x555555;
+    const hasSprite = this.textures.exists(n.sprite_key);
 
     let v = this.npcs.get(id);
     if (!v) {
-      const rect = this.add.rectangle(x, y, 26, 22, color).setStrokeStyle(2, stroke);
-      const label = this.add.text(x - 16, y + 12, id, { fontSize: "9px", color: "#444" });
+      const avatar = hasSprite
+        ? this.add.image(x, y, n.sprite_key).setDisplaySize(30, 30)
+        : this.add.rectangle(x, y, 26, 22, color).setStrokeStyle(2, stroke);
+      const dot = this.add.circle(x + 14, y - 12, 5, color).setStrokeStyle(1, 0xffffff);
+      const label = this.add.text(x - 16, y + 15, id, { fontSize: "9px", color: "#444" });
       // 悬停:通知 React 端展示 think 浮窗(ADR-002 对人全透明)
-      rect.setInteractive({ useHandCursor: true });
-      rect.on("pointerover", () => this.hoverCb(id, { x: rect.x, y: rect.y }));
-      rect.on("pointerout",  () => this.hoverCb(null, null));
-      v = { rect, label };
+      avatar.setInteractive({ useHandCursor: true });
+      avatar.on("pointerover", () => this.hoverCb(id, { x: avatar.x, y: avatar.y }));
+      avatar.on("pointerout", () => this.hoverCb(null, null));
+      v = { avatar, dot, label, usesSprite: hasSprite };
       this.npcs.set(id, v);
     } else {
-      this.tweens.add({ targets: v.rect, x, y, duration: 280, ease: "Sine.easeInOut" });
-      this.tweens.add({ targets: v.label, x: x - 16, y: y + 12, duration: 280 });
-      v.rect.setFillStyle(color);
-      v.rect.setStrokeStyle(2, stroke);
+      this.tweens.add({ targets: v.avatar, x, y, duration: 280, ease: "Sine.easeInOut" });
+      this.tweens.add({ targets: v.dot, x: x + 14, y: y - 12, duration: 280 });
+      this.tweens.add({ targets: v.label, x: x - 16, y: y + 15, duration: 280 });
+      if (!v.usesSprite) {
+        (v.avatar as Phaser.GameObjects.Rectangle).setFillStyle(color).setStrokeStyle(2, stroke);
+      }
     }
-    // error 叠红边闪烁
-    v.rect.setAlpha(n.state === "thinking" ? 0.85 : 1);
+    v.dot.setFillStyle(color);                                 // 状态色点(始终表 state)
+    v.avatar.setAlpha(n.state === "thinking" ? 0.8 : 1);       // thinking 半透明
   }
 
   private _ringBell() {
@@ -143,7 +163,7 @@ export function createTown(parent: HTMLElement): { game: Phaser.Game; scene: Tow
   const scene = new TownScene();
   const game = new Phaser.Game({
     type: Phaser.AUTO, parent, width: W, height: H,
-    backgroundColor: "#fbf8f1", scene,
+    backgroundColor: "#fbf8f1", pixelArt: true, scene,  // pixelArt:精灵放大不模糊
   });
   return { game, scene };
 }

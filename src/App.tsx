@@ -129,9 +129,10 @@ export function App() {
       </div>
 
       <p style={{ fontSize: 11, color: "#999", marginTop: 8 }}>
-        状态色:idle🟢 decomposing🟡 thinking🟣 working🔵 rework🔴 awaiting_review🟠
-        verifying🟪 reviewing🟩 hitl🔥 error⚠️ ｜ 描边色 = 职业 ｜
-        悬停 NPC 看 think（ADR-002 对人全透明）｜ HITL 时屏幕前闪烁 ｜ merge 钟楼敲钟。
+        精灵 = 职业（缺图回退色块，PNG 放 public/sprites/&lt;key&gt;.png）｜
+        角上<b>状态色点</b>:idle🟢 decomposing🟡 thinking🟣 working🔵 rework🔴
+        awaiting_review🟠 verifying🟪 reviewing🟩 hitl🔥 error⚠️ ｜
+        悬停看 think（ADR-002）｜ HITL 屏幕前闪烁 ｜ merge 钟楼敲钟。
       </p>
     </div>
   );

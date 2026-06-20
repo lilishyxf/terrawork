@@ -1,0 +1,24 @@
+{
+  "_about": "M3.6 像素精灵资产清单。把原创 PNG 命名为 <sprite_key>.png 放在本目录;前端按 sprite_key 自动加载,缺图回退为色块。sprite_key 与 roles/<name>.md 的 name 一致(ADR-020 实例→sprite-key)。",
+  "spec": {
+    "format": "PNG, 透明背景(alpha)",
+    "size": "建议 32x32 px(或 16/24/48 的方形;前端按槽位等比缩放,pixelArt 模式不模糊)",
+    "style": "原创像素小人/职业形象;勿用泰拉瑞亚原素材/原角色名/商标(PROJECT.md 禁止#9)",
+    "note": "精灵 = 职业身份(静态);NPC 的当前状态由精灵角上的状态色点表示,不靠精灵本身变化。可选:同 key 提供多帧动画后续再扩(M5)。"
+  },
+  "sprites": [
+    {"key": "guide",         "role": "向导(指挥官)",       "motif": "拿地图/卷轴的引导者,大堂坐镇"},
+    {"key": "merchant",      "role": "商人(默认 builder)", "motif": "拿钱袋的商人(通用建造者兜底)"},
+    {"key": "frontend",      "role": "前端开发者",          "motif": "对着屏幕/窗口画 UI"},
+    {"key": "backend",       "role": "后端架构师",          "motif": "齿轮/服务器/管道"},
+    {"key": "database",      "role": "数据库优化器",        "motif": "圆柱数据库图标/索引卡片"},
+    {"key": "desktop_shell", "role": "桌面壳工程师",        "motif": "窗口边框/打包箱"},
+    {"key": "ai_engineer",   "role": "AI 工程师",           "motif": "脑/芯片/神经网络节点"},
+    {"key": "rapid_proto",   "role": "快速原型机",          "motif": "闪电/草图/计时器"},
+    {"key": "tech_writer",   "role": "技术写作",            "motif": "书本/羽毛笔/文档"},
+    {"key": "mobile",        "role": "移动应用构建器",      "motif": "手机/平板"},
+    {"key": "blaster",       "role": "爆破专家(验证者)",   "motif": "拿引线/雷管的工兵(机器验证)"},
+    {"key": "tailor",        "role": "裁缝(代码审查)",     "motif": "拿针线/放大镜检查针脚"},
+    {"key": "appsec",        "role": "应用安全工程师(安全审查)", "motif": "盾牌/锁/放大镜查漏洞"}
+  ]
+}
