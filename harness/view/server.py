@@ -14,6 +14,7 @@ advance-runner:每 session 单飞(threading + dirty 标志)——运行中到达
 import asyncio
 import os
 import threading
+import time
 import traceback
 from pathlib import Path
 
@@ -72,6 +73,7 @@ def create_app(
     _dirty: dict[str, bool] = {}
 
     def _run_loop(sid: str):
+        fails = 0
         while True:
             with _lock:
                 if not _dirty.get(sid):
@@ -82,8 +84,16 @@ def create_app(
             try:
                 advance_fn(store, llm_client=llm_client, repo_root=repo_root,
                            worktrees_base=worktrees_base, max_rework=max_rework)
+                fails = 0
             except Exception:
                 traceback.print_exc()          # 不崩服务
+                fails += 1
+                # 多半是网络抖断 LLM 调用(如手机热点)→ 标脏 + 退避重试,网络恢复即自愈;
+                # 连续失败 >5 才放弃(留可恢复:下次 /command 或重启续作),避免对真错误空转。
+                if fails <= 5:
+                    with _lock:
+                        _dirty[sid] = True
+                    time.sleep(min(5 * fails, 30))
             finally:
                 store.close()
 
@@ -94,6 +104,23 @@ def create_app(
                 return                          # 已在跑 → dirty 会触发再跑一轮
             _running.add(sid)
         threading.Thread(target=_run_loop, args=(sid,), daemon=True).start()
+
+    @app.on_event("startup")
+    def _resume_pending():
+        """崩溃/重启续作(铁律:恢复状态不恢复思维)。遍历已有 session 各触发一次 advance:
+        有半截任务的会从日志续作(finish_build 等),已静止的快速空跑返回。
+        修复:此前 advance 只在 POST 触发,强杀重启后半截任务会永久卡住。"""
+        import sqlite3
+        if not Path(db_path).exists():
+            return
+        try:
+            conn = sqlite3.connect(str(db_path))
+            sids = [r[0] for r in conn.execute("SELECT DISTINCT session_id FROM events")]
+            conn.close()
+        except Exception:
+            return
+        for sid in sids:
+            _ensure_advance(sid)
 
     # ---- 读端点 ----
     @app.get("/sessions/{sid}/events")
