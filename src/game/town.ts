@@ -4,6 +4,7 @@
 // NPC 当前 state 由角上的状态色点表示(精灵=职业身份静态,状态=色点)。
 import Phaser from "phaser";
 import type { NpcSnapshot, NpcState, Zone, ViewSnapshot } from "./protocol/projection";
+import { agentName } from "./protocol/projection";
 import FRAME_META from "./sprite-frames.json";
 
 type FrameMeta = Record<string, { frameWidth: number; frameHeight: number; frames: number }>;
@@ -58,6 +59,7 @@ const SPRITE_KEYS = Object.keys(SPRITE_STROKE);
 interface NpcView {
   avatar: Phaser.GameObjects.Sprite | Phaser.GameObjects.Rectangle;
   dot: Phaser.GameObjects.Arc;     // 状态色点(精灵模式下用它表 state)
+  name: Phaser.GameObjects.Text;   // 脚下人名(如"苏晴")
   usesSprite: boolean;
 }
 
@@ -186,15 +188,21 @@ export class TownScene extends Phaser.Scene {
         avatar = this.add.rectangle(x, y, 28, 24, color).setStrokeStyle(2, stroke);
       }
       const dot = this.add.circle(x + 15, y - 22, 5, color).setStrokeStyle(1, 0xffffff);
-      // 悬停:通知 React 端展示职位/think 浮窗(ADR-002 对人全透明)
+      // 脚下人名(描边+底色,深浅背景都清晰)
+      const name = this.add.text(x, y + 30, agentName(id), {
+        fontSize: "11px", color: "#fff", fontStyle: "bold",
+        stroke: "#000", strokeThickness: 3,
+      }).setOrigin(0.5);
+      // 悬停:通知 React 端展示人名/职位/think 浮窗(ADR-002 对人全透明)
       avatar.setInteractive({ useHandCursor: true });
       avatar.on("pointerover", () => this.hoverCb(id, { x: avatar.x, y: avatar.y }));
       avatar.on("pointerout", () => this.hoverCb(null, null));
-      v = { avatar, dot, usesSprite: hasSprite };
+      v = { avatar, dot, name, usesSprite: hasSprite };
       this.npcs.set(id, v);
     } else {
       this.tweens.add({ targets: v.avatar, x, y, duration: 280, ease: "Sine.easeInOut" });
       this.tweens.add({ targets: v.dot, x: x + 15, y: y - 22, duration: 280 });
+      this.tweens.add({ targets: v.name, x, y: y + 30, duration: 280 });
       if (!v.usesSprite) {
         (v.avatar as Phaser.GameObjects.Rectangle).setFillStyle(color).setStrokeStyle(2, stroke);
       }

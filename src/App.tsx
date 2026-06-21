@@ -1,7 +1,7 @@
 // M3-5 完整 View:订阅事件 → 投影 → Phaser 小镇 + 悬停看 think + 任务板侧栏。
 import { useEffect, useMemo, useRef, useState } from "react";
 import { subscribe, postCommand, postHitl, type TerraEvent, type Phase } from "./ipc/subscribe";
-import { project, type ViewSnapshot, type NpcSnapshot, type TaskStatus } from "./game/protocol/projection";
+import { project, agentName, roleTitleOf, type ViewSnapshot, type NpcSnapshot, type TaskStatus } from "./game/protocol/projection";
 import { createTown, type TownScene } from "./game/town";
 import type Phaser from "phaser";
 
@@ -16,20 +16,6 @@ const MODELS: { label: string; value: string }[] = [
   { label: "GPT-4o mini", value: "openai/gpt-4o-mini" },
   { label: "Claude 3.5 Sonnet", value: "anthropic/claude-3-5-sonnet-20241022" },
 ];
-
-// sprite_key(= 角色名) → 中文职位(取自 roles/*.md 的 display_name)
-const ROLE_TITLE: Record<string, string> = {
-  guide: "向导", blaster: "爆破专家", tailor: "裁缝", appsec: "应用安全工程师",
-  frontend: "前端开发者", backend: "后端架构师", database: "数据库优化器",
-  desktop_shell: "桌面壳工程师", ai_engineer: "AI 工程师", rapid_proto: "快速原型机",
-  tech_writer: "技术写作", mobile: "移动应用构建器", merchant: "商人",
-};
-// 实例 id(如 tailor#1)→ "裁缝 #1";取不到职位则原样
-function roleTitle(id: string, spriteKey: string): string {
-  const t = ROLE_TITLE[spriteKey];
-  const hash = id.includes("#") ? " #" + id.split("#")[1] : "";
-  return t ? t + hash : id;
-}
 
 // task_board 列表的状态颜色(与 Phaser 色板呼应)
 const STATUS_COLOR: Record<TaskStatus, string> = {
@@ -76,11 +62,10 @@ const TONE_COLOR: Record<FeedTone, string> = {
   user: "#2e7d32", guide: "#ef6c00", agent: "#1565c0", system: "#6a1b9a", alert: "#c62828",
 };
 
-function roleFromId(id: string): string { return id.includes("#") ? id.split("#")[0] : id; }
 function actorName(id: string): string {
   if (id === "user") return "你";
   if (id === "system") return "系统";
-  return roleTitle(id, roleFromId(id));
+  return agentName(id);   // 人名(如"苏晴"),取不到则原样
 }
 function fmtTime(ts?: string): string {
   if (!ts) return "";
@@ -104,7 +89,7 @@ function eventToFeed(e: TerraEvent): FeedLine | null {
     case "npc_think": return { ...b, actor: actorName(e.agent), text: trunc(S(p.text), 140), tone: "agent" };
     case "tool_done": return { ...b, actor: actorName(e.agent), text: `执行 ${S(p.tool)} ${p.status === "ok" ? "✓" : "✗"}`, tone: "agent" };
     case "review_request": return { ...b, actor: actorName(e.agent), text: "提交产物,等待审查", tone: "agent" };
-    case "verify_run": return { ...b, actor: "验证", text: `运行 ${trunc(S(p.command), 50)} → ${p.passed ? "通过 ✓" : "未通过 ✗"}`, tone: "system" };
+    case "verify_run": return { ...b, actor: actorName(e.agent), text: `验证 ${trunc(S(p.command), 46)} → ${p.passed ? "通过 ✓" : "未通过 ✗"}`, tone: "system" };
     case "review_verdict": return { ...b, actor: actorName(S(p.reviewer)), text: `审查${p.verdict === "pass" ? "通过 ✓" : "打回 ✗"}${p.notes ? ":" + trunc(S(p.notes), 70) : ""}`, tone: p.verdict === "pass" ? "agent" : "alert" };
     case "merge": return { ...b, actor: "系统", text: p.result === "success" ? `已合并 ${S(p.task_id)} ✓` : `合并冲突 ${S(p.task_id)}`, tone: "system" };
     case "hitl_request": return { ...b, actor: "🔔 需要你", text: trunc(S(p.question), 110), tone: "alert" };
@@ -361,9 +346,10 @@ function ThinkTooltip({ x, y, id, npc }: { x: number; y: number; id: string; npc
       }}
     >
       <div style={{ marginBottom: 4 }}>
-        <b>{roleTitle(id, npc.sprite_key)}</b>{" "}
+        <b>{agentName(id)}</b>{" "}
+        <small style={{ color: "#9cf" }}>{roleTitleOf(id)}</small>{" "}
         <small style={{ color: "#aaa" }}>
-          {npc.state}{npc.task_id && <> · <code>{npc.task_id}</code></>}
+          · {npc.state}{npc.task_id && <> · <code>{npc.task_id}</code></>}
         </small>
       </div>
       {npc.think ? (

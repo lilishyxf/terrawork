@@ -71,6 +71,33 @@ function zoneOf(npcId: string, state: NpcState): Zone {
   return map[state]!;
 }
 
+// ── 显示用:角色人名 + 中文职位(纯展示,不影响投影/parity)──────────
+// 每个职业一个拟人名字(可自由改);多实例自动加序号。
+export const ROLE_NAME: Record<string, string> = {
+  guide: "林溪", frontend: "苏晴", backend: "陈默", database: "何川",
+  desktop_shell: "关山", ai_engineer: "司睿", rapid_proto: "程迅",
+  tech_writer: "文澜", mobile: "江帆", merchant: "钱通",
+  blaster: "雷岩", tailor: "顾织", appsec: "安盾",
+};
+export const ROLE_TITLE: Record<string, string> = {
+  guide: "向导", frontend: "前端开发者", backend: "后端架构师", database: "数据库优化器",
+  desktop_shell: "桌面壳工程师", ai_engineer: "AI 工程师", rapid_proto: "快速原型机",
+  tech_writer: "技术写作", mobile: "移动应用构建器", merchant: "商人",
+  blaster: "爆破专家", tailor: "裁缝", appsec: "应用安全工程师",
+};
+/** 实例 id(如 frontend#2)→ 人名(多实例加序号):"苏晴2";取不到则原样。 */
+export function agentName(id: string): string {
+  const role = roleOf(id);
+  const name = ROLE_NAME[role];
+  if (!name) return id;
+  const n = id.includes("#") ? id.split("#")[1] : "";
+  return n && n !== "1" ? `${name}${n}` : name;
+}
+/** 实例 id → 中文职位(取不到则原样)。 */
+export function roleTitleOf(id: string): string {
+  return ROLE_TITLE[roleOf(id)] ?? id;
+}
+
 export function project(events: TerraEvent[]): ViewSnapshot {
   const npcs: Record<string, NpcSnapshot> = {};
   const delegateTask: Record<number, string> = {};      // guide_delegate.event_id → task_id
