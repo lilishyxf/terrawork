@@ -69,10 +69,14 @@ def main() -> None:
     ap.add_argument("--worktrees-base", default="data/worktrees", help="NPC worktree 基目录")
     args = ap.parse_args()
     repo_root = ensure_sandbox_repo(Path(args.repo_root))
+    # worktrees_base 必须绝对:create_worktree 以 cwd=repo_root(沙箱绝对路径)跑
+    # git worktree add,若 base 为相对路径会被建到沙箱内部,与按进程目录解析的 reuse
+    # 检查不一致 → "worktree missing" 崩溃。绝对化使两端基准一致。
+    worktrees_base = Path(args.worktrees_base).resolve()
     # 写端点会后台跑 advance(真实 LLM 需 TERRA_LLM_MODE=real + .env)
     uvicorn.run(
         create_app(args.db, poll_interval=args.poll_interval,
-                   repo_root=repo_root, worktrees_base=Path(args.worktrees_base)),
+                   repo_root=repo_root, worktrees_base=worktrees_base),
         host=args.host, port=args.port,
     )
 
