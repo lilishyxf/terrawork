@@ -60,6 +60,7 @@ interface NpcView {
   avatar: Phaser.GameObjects.Sprite | Phaser.GameObjects.Rectangle;
   dot: Phaser.GameObjects.Arc;     // 状态色点(精灵模式下用它表 state)
   name: Phaser.GameObjects.Text;   // 脚下人名(如"苏晴")
+  gray: Phaser.FX.ColorMatrix | null;  // 院子待命 → 黑白滤镜(休眠感)
   usesSprite: boolean;
 }
 
@@ -193,6 +194,9 @@ export class TownScene extends Phaser.Scene {
       } else {
         avatar = this.add.rectangle(x, y, 28, 24, color).setStrokeStyle(2, stroke);
       }
+      // 院子待命 → 黑白滤镜(休眠感);仅 WebGL 精灵支持 preFX
+      const gray = (avatar instanceof Phaser.GameObjects.Sprite && avatar.preFX)
+        ? avatar.preFX.addColorMatrix() : null;
       const dot = this.add.circle(x + 15, y - 22, 5, color).setStrokeStyle(1, 0xffffff);
       // 脚下人名(描边+底色,深浅背景都清晰)
       const name = this.add.text(x, y + 30, agentName(id), {
@@ -203,7 +207,7 @@ export class TownScene extends Phaser.Scene {
       avatar.setInteractive({ useHandCursor: true });
       avatar.on("pointerover", () => this.hoverCb(id, { x: avatar.x, y: avatar.y }));
       avatar.on("pointerout", () => this.hoverCb(null, null));
-      v = { avatar, dot, name, usesSprite: hasSprite };
+      v = { avatar, dot, name, gray, usesSprite: hasSprite };
       this.npcs.set(id, v);
     } else {
       this.tweens.add({ targets: v.avatar, x, y, duration: 280, ease: "Sine.easeInOut" });
@@ -214,7 +218,13 @@ export class TownScene extends Phaser.Scene {
       }
     }
     v.dot.setFillStyle(color);                                 // 状态色点(始终表 state)
-    v.avatar.setAlpha(n.state === "thinking" ? 0.8 : 1);       // thinking 半透明
+    // 院子待命 → 黑白 + 略暗(休眠);其他区域 → 彩色。thinking 半透明保留。
+    const dormant = n.zone === "yard";
+    if (v.gray) { if (dormant) v.gray.grayscale(1); else v.gray.reset(); }
+    if (!v.usesSprite) {
+      (v.avatar as Phaser.GameObjects.Rectangle).setFillStyle(dormant ? 0x9a9a9a : color);
+    }
+    v.avatar.setAlpha(n.state === "thinking" ? 0.8 : dormant ? 0.7 : 1);
   }
 
   private _hitlTween?: Phaser.Tweens.Tween;
