@@ -1,7 +1,7 @@
 // M3-5 完整 View:订阅事件 → 投影 → Phaser 小镇 + 悬停看 think + 任务板侧栏。
 import { useEffect, useMemo, useRef, useState } from "react";
 import { subscribe, postCommand, postHitl, type TerraEvent, type Phase } from "./ipc/subscribe";
-import { project, agentName, roleTitleOf, type ViewSnapshot, type NpcSnapshot, type TaskStatus } from "./game/protocol/projection";
+import { project, agentName, type ViewSnapshot, type NpcSnapshot, type TaskStatus } from "./game/protocol/projection";
 import { createTown, type TownScene } from "./game/town";
 import type Phaser from "phaser";
 
@@ -347,9 +347,8 @@ function ThinkTooltip({ x, y, id, npc }: { x: number; y: number; id: string; npc
     >
       <div style={{ marginBottom: 4 }}>
         <b>{agentName(id)}</b>{" "}
-        <small style={{ color: "#9cf" }}>{roleTitleOf(id)}</small>{" "}
         <small style={{ color: "#aaa" }}>
-          · {npc.state}{npc.task_id && <> · <code>{npc.task_id}</code></>}
+          {npc.state}{npc.task_id && <> · <code>{npc.task_id}</code></>}
         </small>
       </div>
       {npc.think ? (
