@@ -41,6 +41,23 @@ function computeOpenHitl(events: TerraEvent[]) {
     : null;
 }
 
+// 向导对非任务输入的直接回复(ADR-023)= 父为 user_command、且没有 guide_delegate 子节点的最新 guide_think
+function computeGuideReply(events: TerraEvent[]) {
+  const thinkWithDelegate = new Set(
+    events.filter((e) => e.type === "guide_delegate").map((e) => e.parent_event_id),
+  );
+  const cmdIds = new Set(
+    events.filter((e) => e.type === "user_command").map((e) => e.event_id),
+  );
+  const replies = events.filter(
+    (e) => e.type === "guide_think"
+      && !thinkWithDelegate.has(e.event_id)
+      && e.parent_event_id != null && cmdIds.has(e.parent_event_id),
+  );
+  const last = replies[replies.length - 1];
+  return last ? { event_id: last.event_id, text: String(last.payload.text ?? "") } : null;
+}
+
 export function App() {
   const [base, setBase] = useState(DEFAULT_BASE);
   const [session, setSession] = useState("default");
@@ -54,6 +71,7 @@ export function App() {
   // 未回应的 HITL 卡口(at_glass 闪烁时弹回应框)
   const [openHitl, setOpenHitl] = useState<{ event_id: number; question: string; task_id?: string } | null>(null);
   const [hitlText, setHitlText] = useState("");
+  const [guideReply, setGuideReply] = useState<{ event_id: number; text: string } | null>(null);
 
   const subRef = useRef<{ close: () => void } | null>(null);
   const townHostRef = useRef<HTMLDivElement | null>(null);
@@ -86,6 +104,7 @@ export function App() {
     setSnap(next);
     sceneRef.current?.applySnapshot(next);
     setOpenHitl(computeOpenHitl(eventsRef.current));  // 刷新待回应 HITL
+    setGuideReply(computeGuideReply(eventsRef.current));  // 刷新向导对话回复(ADR-023)
   }
 
   async function sendCommand() {
@@ -114,6 +133,7 @@ export function App() {
     setCount(0);
     setSnap(project([]));
     setOpenHitl(null);
+    setGuideReply(null);
     setPhase("catchup");
     setConnected(true);
     subRef.current = subscribe(base, session, {
@@ -183,6 +203,16 @@ export function App() {
         <button onClick={sendCommand} disabled={busy || !cmd.trim()}
                 style={{ padding: "8px 20px" }}>{busy ? "…" : "下指令"}</button>
       </div>
+
+      {/* 向导对话回复(ADR-023):非任务输入(问候/闲聊)时向导直接回你一句,不建任务卡 */}
+      {guideReply && (
+        <div style={{
+          marginBottom: 10, padding: "8px 12px", background: "#fff8e1",
+          border: "1px solid #ffe082", borderRadius: 6, fontSize: 13, color: "#5a4f3a",
+        }}>
+          <b>向导</b>:{guideReply.text}
+        </div>
+      )}
 
       <div style={{ display: "flex", gap: 16, alignItems: "flex-start" }}>
         <div style={{ position: "relative" }}>

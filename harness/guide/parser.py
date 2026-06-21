@@ -31,9 +31,11 @@ def parse_llm_output(
 
     Returns:
         [guide_think_event, guide_delegate_event_1, ..., guide_delegate_event_N]
+        非任务输入(问候/闲聊/提问)时 tasks 可为空数组 → 仅返回 [guide_think],
+        thinking 即向导对用户的回复(ADR-023 对话出口)。
 
     Raises:
-        ParseError: JSON 解析失败、缺 thinking/tasks 字段、tasks 为空。
+        ParseError: JSON 解析失败、缺 thinking/tasks 字段、tasks 非数组。
     """
     if ts_iso is None:
         ts_iso = datetime.utcnow().isoformat() + "Z"
@@ -53,8 +55,7 @@ def parse_llm_output(
         raise ParseError("LLM 输出缺 'thinking' 字段或为空字符串")
     if not isinstance(tasks, list):
         raise ParseError(f"LLM 输出 'tasks' 必须为数组,实际 {type(tasks).__name__}")
-    if not tasks:
-        raise ParseError("LLM 输出 'tasks' 数组为空,Guide 必须产出至少 1 张任务卡")
+    # tasks 为空 = 非任务输入(问候/闲聊/提问),合法:仅产出 guide_think 作为回复(ADR-023)
 
     # 第一个事件:guide_think,parent 链回 trigger
     eid = starting_event_id

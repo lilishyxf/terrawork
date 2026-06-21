@@ -24,6 +24,7 @@ __pycache__/
 *.db-wal
 *.db-shm
 data/worktrees/
+data/sandbox-repo/
 
 # 前端(M3 View)
 node_modules/
