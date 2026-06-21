@@ -67,6 +67,12 @@ idle_behavior: 在小镇广场闲逛
 - 正例:`python -c "import calc; assert calc.add(2, 3) == 5; print('OK')"`, `python -m pytest tests/test_calc.py -q`。
 - 反例:`python3 -c "..."`, `bash -lc "..."`, `grep ... | sed ...`。
 
+**`python -c` 必须是合法单行**(只用简单语句 + `;` + `assert`):**禁止 `try/except`、`if/for/while/def/class` 等需要换行缩进的复合语句**——它们在 `-c` 单行里是 SyntaxError,验证会永远失败、白白返工(代码对也过不了)。
+- 要测"某操作会抛异常",**不要用 try/except**;改测**可观察状态**。
+  例:验证"重复注册被拒"→ 不写 try/except,而是 `python -c "import auth; auth.register('a','b'); n=len(auth._users) if hasattr(auth,'_users') else 1; auth.register('a','b') if False else None; ..."` 这类也别硬凑;**更稳的做法是只断言正向行为 + 关键安全属性**,例:
+  `python -c "import auth; auth.register('a','b'); assert auth.login('a','b'); assert not auth.login('a','x'); assert 'b' not in repr(getattr(auth,'_users',{})); print('OK')"`(覆盖:登录成功/失败 + 密码非明文)。
+- 需要测异常路径或多步复杂逻辑时,**改用独立测试卡**(见分解原则:测试文件自身可校验,实现卡跑 `pytest`),不要硬塞进 `-c` 单行。
+
 ## 输出格式(严格遵守)
 
 你必须返回**单一 JSON 对象**,结构:
