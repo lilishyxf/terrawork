@@ -108,7 +108,7 @@ def execute_npc(
     worktrees_base: Path = Path("data/worktrees"),
     llm_client=None,
     scripted_actions: list[dict] | None = None,
-    max_iterations: int = 10,
+    max_iterations: int = 25,
     reuse_worktree: bool = False,
     rework_notes: str | None = None,
 ) -> None:

@@ -34,7 +34,7 @@ def run_npc_subprocess(
     repo_root: str,
     worktrees_base: str,
     scripted_actions: list[dict] | None = None,
-    max_iterations: int = 10,
+    max_iterations: int = 25,
     reuse_worktree: bool = False,
     rework_notes: str | None = None,
     timeout: float | None = None,
@@ -90,7 +90,7 @@ def main() -> int:
             worktrees_base=Path(params["worktrees_base"]),
             llm_client=None,
             scripted_actions=params.get("scripted_actions"),
-            max_iterations=params.get("max_iterations", 10),
+            max_iterations=params.get("max_iterations", 25),
             reuse_worktree=params.get("reuse_worktree", False),
             rework_notes=params.get("rework_notes"),
         )
