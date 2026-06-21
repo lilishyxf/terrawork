@@ -135,6 +135,8 @@ export function App() {
   const [feed, setFeed] = useState<FeedLine[]>([]);   // 实时动态流(图一风格)
   const feedRef = useRef<HTMLDivElement | null>(null);
   const reconnectRef = useRef<number | null>(null);
+  const cursorRef = useRef(0);        // 已收到的最大 event_id(重连续传用)
+  const genRef = useRef(0);           // 连接代次:只认最新连接的断开
 
   const subRef = useRef<{ close: () => void } | null>(null);
   const townHostRef = useRef<HTMLDivElement | null>(null);
@@ -153,6 +155,7 @@ export function App() {
     }
     connect();   // 打开即自动连接(无需手动点"连接")
     return () => {
+      genRef.current++;   // 让当前连接的 onClose 失效,卸载/重挂不触发重连
       if (reconnectRef.current) { clearTimeout(reconnectRef.current); reconnectRef.current = null; }
       subRef.current?.close();
       subRef.current = null;
@@ -199,30 +202,35 @@ export function App() {
     finally { setBusy(false); }
   }
 
-  function connect() {
-    subRef.current?.close();
-    eventsRef.current = [];
-    setCount(0);
-    setSnap(project([]));
-    setOpenHitl(null);
-    setGuideReply(null);
-    setFeed([]);
-    setPhase("catchup");
+  // 打开连接。resume=true:从游标续传(只补新事件,不清空、不重放)——断线自愈时用;
+  // resume=false:全量(初次/手动重连)。代次(gen)守卫:只有"最新连接"的断开才触发重连,
+  // 主动关闭(重连/卸载/StrictMode 双挂载)的旧连接断开一律忽略,杜绝重连抖动与整页重刷。
+  function _open(resume: boolean) {
+    const myGen = ++genRef.current;
+    subRef.current?.close();           // 旧连接 gen 已过期,其 onClose 会被忽略
+    if (!resume) {
+      eventsRef.current = [];
+      cursorRef.current = 0;
+      setCount(0); setSnap(project([])); setOpenHitl(null); setGuideReply(null); setFeed([]);
+    }
+    setPhase(resume ? "live" : "catchup");
     setConnected(true);
     subRef.current = subscribe(base, session, {
-      onEvent: (e, ph) => { setPhase(ph); pushEvent(e); },
+      onEvent: (e, ph) => { cursorRef.current = e.event_id ?? cursorRef.current; setPhase(ph); pushEvent(e); },
       onCaughtUp: () => setPhase("live"),
-      onClose: () => { setConnected(false); _scheduleReconnect(); },
-      onError: () => { setConnected(false); _scheduleReconnect(); },
-    });
+      onClose: () => { if (myGen === genRef.current) { setConnected(false); _scheduleReconnect(); } },
+      onError: () => { if (myGen === genRef.current) { setConnected(false); _scheduleReconnect(); } },
+    }, { since: resume ? cursorRef.current : 0 });
   }
 
-  // 断线后自动重连(后端重启/网络抖动都能自愈,无需用户操作)
+  function connect() { _open(false); }   // 手动/初次:全量
+
+  // 断线自愈:2 秒后从游标续传(只补新事件,界面不闪、不重放历史)
   function _scheduleReconnect() {
     if (reconnectRef.current) return;
     reconnectRef.current = window.setTimeout(() => {
       reconnectRef.current = null;
-      connect();
+      _open(true);
     }, 2000);
   }
 

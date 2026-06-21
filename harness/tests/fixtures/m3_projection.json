@@ -23,8 +23,8 @@
   "checkpoints": [
     {"after_event_id": 0,  "expect": {"guide": {"state": "idle", "zone": "lobby"}, "blaster#1": {"state": "idle", "zone": "verify_room"}, "tailor#1": {"state": "idle", "zone": "review_room"}, "appsec#1": {"state": "idle", "zone": "review_room"}}},
     {"after_event_id": 6,  "expect": {"merchant#1": {"state": "working", "zone": "workshop"}}},
-    {"after_event_id": 7,  "expect": {"merchant#1": {"state": "awaiting_review", "zone": "review_door"}}},
-    {"after_event_id": 9,  "expect": {"blaster#1": {"state": "idle", "zone": "verify_room"}, "merchant#1": {"state": "awaiting_review", "zone": "review_door"}}},
+    {"after_event_id": 7,  "expect": {"merchant#1": {"state": "awaiting_review", "zone": "yard"}}},
+    {"after_event_id": 9,  "expect": {"blaster#1": {"state": "idle", "zone": "verify_room"}, "merchant#1": {"state": "awaiting_review", "zone": "yard"}}},
     {"after_event_id": 11, "expect": {"tailor#1": {"state": "idle", "zone": "review_room"}}},
     {"after_event_id": 14, "expect": {"merchant#1": {"state": "idle", "zone": "yard"}, "guide": {"state": "idle", "zone": "lobby"}}}
   ],

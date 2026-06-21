@@ -66,7 +66,7 @@ function zoneOf(npcId: string, state: NpcState): Zone {
   // 其余 state 直接由 state 决定
   const map: Partial<Record<NpcState, Zone>> = {
     working: "workshop", rework: "workshop", decomposing: "lobby",
-    awaiting_review: "review_door", verifying: "verify_room", reviewing: "review_room",
+    awaiting_review: "yard", verifying: "verify_room", reviewing: "review_room",
   };
   return map[state]!;
 }

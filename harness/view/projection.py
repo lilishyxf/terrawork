@@ -56,7 +56,7 @@ def _zone(npc_id: str, state: str) -> str:
             {"verifier": "verify_room", "reviewer": "review_room"}.get(kind, "lobby")
     return {  # 其余直接由 state 决定(builder 主体)
         "working": "workshop", "rework": "workshop", "decomposing": "lobby",
-        "awaiting_review": "review_door", "verifying": "verify_room", "reviewing": "review_room",
+        "awaiting_review": "yard", "verifying": "verify_room", "reviewing": "review_room",
     }[state]
 
 
