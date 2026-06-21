@@ -67,6 +67,8 @@ export type HoverCallback = (npcId: string | null, screen: { x: number; y: numbe
 
 export class TownScene extends Phaser.Scene {
   private npcs = new Map<string, NpcView>();
+  private ready = false;                    // create() 完成(精灵贴图已加载)前不建 NPC
+  private pendingSnap?: ViewSnapshot;       // 就绪前到达的最新快照,就绪后补放
   private hitlPulse?: Phaser.GameObjects.Rectangle;
   private hoverCb: HoverCallback = () => {};
   constructor() { super("Town"); }
@@ -138,10 +140,14 @@ export class TownScene extends Phaser.Scene {
         this.hitlPulse = this.add.rectangle(z.x, z.y, z.w, z.h, 0xffe0e0, 0).setDepth(-3);
       }
     }
+    // 贴图此时已加载完毕:标记就绪,补放就绪前到达的快照(否则 NPC 会被建成回退色块)
+    this.ready = true;
+    if (this.pendingSnap) this.applySnapshot(this.pendingSnap);
   }
 
-  /** 用最新 snapshot 调和场景:create/move/recolor;HITL 闪烁。 */
+  /** 用最新 snapshot 调和场景:create/move/recolor;HITL 闪烁。就绪前先存,create 后补放。 */
   applySnapshot(snap: ViewSnapshot) {
+    if (!this.ready) { this.pendingSnap = snap; return; }
     const occ: Record<Zone, number> = {} as Record<Zone, number>;
     let hitlActive = false;
     for (const [id, n] of Object.entries(snap.npcs)) {
