@@ -21,6 +21,14 @@ from harness.view.server import create_app
 # 产品仓库根 = 本文件的 harness/view/serve.py 往上三级
 PRODUCT_ROOT = Path(__file__).resolve().parents[2]
 
+# 加载 .env,使实时模式(TERRA_LLM_MODE=real)能从环境读到 *_API_KEY。
+# 之前只有测试 conftest 加载 .env,生产启动器漏了 → 实时调用拿不到 key。
+try:
+    from dotenv import load_dotenv
+    load_dotenv(PRODUCT_ROOT / ".env")
+except ImportError:
+    pass
+
 
 def ensure_sandbox_repo(repo_root: Path) -> Path:
     """确保 repo_root 是一个可用的沙箱 git 仓库;拒绝指向产品仓库本身。
