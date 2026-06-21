@@ -7,14 +7,23 @@ import type Phaser from "phaser";
 
 const DEFAULT_BASE = "http://127.0.0.1:8000";
 
-// 模型选择(全局覆盖所有 NPC)。空值=各角色用 roles/*.md 默认。
-// 只列支持 function-calling + JSON 输出的模型(builder 要工具调用);需对应 .env 里的 key。
-const MODELS: { label: string; value: string }[] = [
-  { label: "按角色默认", value: "" },
-  { label: "DeepSeek Chat", value: "deepseek/deepseek-chat" },
-  { label: "GPT-4o", value: "openai/gpt-4o" },
-  { label: "GPT-4o mini", value: "openai/gpt-4o-mini" },
-  { label: "Claude 3.5 Sonnet", value: "anthropic/claude-3-5-sonnet-20241022" },
+// 模型选择(全局覆盖所有 NPC)。空值=各角色用 roles/*.md 默认。按提供商分组。
+// 均支持 function-calling(builder 要工具调用);需对应 .env 里的 key。型号核于 2026-06。
+const MODEL_GROUPS: { provider: string; items: { label: string; value: string }[] }[] = [
+  { provider: "DeepSeek", items: [
+    { label: "V4 Pro(强,推荐写代码)", value: "deepseek/deepseek-v4-pro" },
+    { label: "V4 Flash(快/省)", value: "deepseek/deepseek-v4-flash" },
+  ]},
+  { provider: "OpenAI", items: [
+    { label: "GPT-5.5", value: "openai/gpt-5.5" },
+    { label: "GPT-5.5 Pro", value: "openai/gpt-5.5-pro" },
+    { label: "GPT-5.4 mini(省)", value: "openai/gpt-5.4-mini" },
+  ]},
+  { provider: "Anthropic", items: [
+    { label: "Claude Opus 4.8(最强)", value: "anthropic/claude-opus-4-8" },
+    { label: "Claude Sonnet 4.6", value: "anthropic/claude-sonnet-4-6" },
+    { label: "Claude Haiku 4.5(省)", value: "anthropic/claude-haiku-4-5" },
+  ]},
 ];
 
 // 深色主题调色板(图二风格)
@@ -289,14 +298,17 @@ export function App() {
                onKeyDown={(e) => { if (e.key === "Enter") sendCommand(); }}
                placeholder="跟向导下个任务…(回车发送)"
                style={{ ...inputCss, flex: 1, borderRadius: 999, padding: "10px 18px" }} disabled={busy} />
-        <input list="model-options" value={model} disabled={busy}
-               onChange={(e) => { setModel(e.target.value); localStorage.setItem("terra_model", e.target.value); }}
-               placeholder="模型(留空=默认)"
-               title="模型 id,全局覆盖所有 NPC。可直接输入(如 deepseek/deepseek-chat);留空用各角色默认"
-               style={{ ...inputCss, borderRadius: 999, width: 230 }} />
-        <datalist id="model-options">
-          {MODELS.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
-        </datalist>
+        <select value={model} disabled={busy}
+                onChange={(e) => { setModel(e.target.value); localStorage.setItem("terra_model", e.target.value); }}
+                title="选择模型(全局覆盖所有 NPC);留空=各角色默认"
+                style={{ ...inputCss, borderRadius: 999, cursor: "pointer", width: 220 }}>
+          <option value="">按角色默认</option>
+          {MODEL_GROUPS.map((g) => (
+            <optgroup key={g.provider} label={g.provider}>
+              {g.items.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
+            </optgroup>
+          ))}
+        </select>
         <button onClick={sendCommand} disabled={busy || !cmd.trim()}
                 style={{ ...btnCss, borderRadius: 999, opacity: busy || !cmd.trim() ? 0.5 : 1 }}>{busy ? "…" : "下指令"}</button>
       </div>

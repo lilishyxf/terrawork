@@ -5,7 +5,7 @@ role: builder
 domain: engineering
 specialty: rapid_proto
 summary: 快速原型/MVP——用现成栈最快验证核心假设
-model: deepseek/deepseek-chat
+model: deepseek/deepseek-v4-pro
 tools: [read, write, bash]
 max_think_depth: 3
 sprite: rapid_proto.png

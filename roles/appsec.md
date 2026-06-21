@@ -4,7 +4,7 @@ display_name: 应用安全工程师
 role: reviewer
 domain: security
 specialty: appsec-review
-model: deepseek/deepseek-chat
+model: deepseek/deepseek-v4-pro
 tools: [read]
 max_think_depth: 3
 sprite: appsec.png

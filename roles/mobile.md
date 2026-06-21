@@ -5,7 +5,7 @@ role: builder
 domain: engineering
 specialty: mobile
 summary: 移动应用——iOS/Android 原生、React Native/Flutter 跨平台
-model: deepseek/deepseek-chat
+model: deepseek/deepseek-v4-pro
 tools: [read, write, bash]
 max_think_depth: 3
 sprite: mobile.png

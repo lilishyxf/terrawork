@@ -5,7 +5,7 @@ role: builder
 domain: engineering
 specialty: tech_writer
 summary: 开发者文档——README、API 参考、教程、docs-as-code
-model: deepseek/deepseek-chat
+model: deepseek/deepseek-v4-pro
 tools: [read, write, bash]
 max_think_depth: 3
 sprite: tech_writer.png

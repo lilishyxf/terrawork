@@ -5,7 +5,7 @@ role: builder
 domain: engineering
 specialty: frontend
 summary: 前端 UI 实现——React/Vue/Angular 组件、响应式与可访问性、性能(Core Web Vitals)
-model: deepseek/deepseek-chat
+model: deepseek/deepseek-v4-pro
 tools: [read, write, bash]
 max_think_depth: 3
 sprite: frontend.png

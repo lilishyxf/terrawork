@@ -2,7 +2,7 @@
 name: guide
 display_name: 向导
 role: orchestrator
-model: deepseek/deepseek-chat
+model: deepseek/deepseek-v4-pro
 tools: []
 sprite: guide.png
 idle_behavior: 在小镇广场闲逛

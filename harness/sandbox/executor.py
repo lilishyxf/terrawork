@@ -212,7 +212,26 @@ def execute_npc(
             })
 
         completed_normally = False
+        bash_cmds: list[str] = []          # 收敛护栏:近期 bash 命令(防死循环)
+        warned_budget = False
+        warned_repeat = False
         for _iteration in range(max_iterations):
+            # 收敛护栏 B1:接近迭代上限 → 提醒收手(只提醒一次)
+            if not warned_budget and max_iterations - _iteration <= 5:
+                messages.append({
+                    "role": "user",
+                    "content": "⏱ 已接近工具调用上限。若实现已完成,请**立刻停止调用任何工具**,"
+                               "只回一段简短总结即可;不要再反复 bash 自测。",
+                })
+                warned_budget = True
+            # 收敛护栏 B2:连续 3 次相同 bash → 提醒别打转(只提醒一次)
+            if not warned_repeat and len(bash_cmds) >= 3 and len(set(bash_cmds[-3:])) == 1:
+                messages.append({
+                    "role": "user",
+                    "content": "你在重复执行同一条命令。若实现已完成就**停手交付**(不再调工具);"
+                               "若没完成,换个思路,别原地打转。",
+                })
+                warned_repeat = True
             message = llm_client.complete_with_tools(
                 model=role_model,
                 messages=messages,
@@ -264,6 +283,8 @@ def execute_npc(
                 result = _dispatch_tool(tool_name, full_params, wt_path)
                 if tool_name == "write" and result.get("status") == "ok" and "path" in full_params:
                     written_files.append(full_params["path"])
+                if tool_name == "bash":
+                    bash_cmds.append(str(full_params.get("cmd", "")))  # 收敛护栏 B2 检测用
 
                 done = session_store.append_event(
                     agent=npc_instance_id,

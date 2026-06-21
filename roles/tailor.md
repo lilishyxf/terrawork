@@ -4,7 +4,7 @@ display_name: 裁缝
 role: reviewer
 domain: engineering
 specialty: code-review
-model: deepseek/deepseek-chat
+model: deepseek/deepseek-v4-pro
 tools: [read]
 max_think_depth: 3
 sprite: tailor.png

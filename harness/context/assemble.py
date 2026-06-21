@@ -81,15 +81,26 @@ def _render_task_card(task_card: dict) -> str:
     return "\n".join(lines)
 
 
+# 完成规约(收敛护栏):所有 builder 共用,附在角色 system 末尾。防止反复 bash 撞迭代上限。
+_COMPLETION_PROTOCOL = """
+
+## ⏱ 完成规约(必须遵守,关乎收敛)
+- 你的工具调用次数**有预算上限**,超了会判失败。务必高效。
+- 标准路径:`read` 必要上下文 → `write` 实现 → **至多一次** `bash` 做必要自检 → **停手**。
+- **完成 = 不再调用任何工具**,只回一段简短文字总结产出。系统据此判定你完工。
+- **严禁反复 `bash` 自测/打印/查看**。`bash` 不是验收闸(那是验证者的事);
+  本地绿不代表完成,别为"再确认一下"而循环跑命令。
+- 实现写完且自检无明显错误,就立刻停手交付,把验收交给后续 verifier/reviewer。
+"""
+
+
 def assemble_context_for_npc(role_name: str, task_card: dict) -> list[dict]:
     """构造 NPC 执行所需的 LLM messages 列表(M1.3 最小版本)。
 
-    Returns:
-        [{"role": "system", "content": <roles/{role_name}.md body>},
-         {"role": "user", "content": <task_card 渲染>}]
+    system = 角色 body + 完成规约(收敛护栏);user = 任务卡渲染。
     """
     return [
-        {"role": "system", "content": _load_role_body(role_name)},
+        {"role": "system", "content": _load_role_body(role_name) + _COMPLETION_PROTOCOL},
         {"role": "user", "content": _render_task_card(task_card)},
     ]
 

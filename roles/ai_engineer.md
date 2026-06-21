@@ -5,7 +5,7 @@ role: builder
 domain: engineering
 specialty: ai_engineer
 summary: AI/ML 功能——模型集成、数据管道、推理 API、RAG/NLP/CV
-model: deepseek/deepseek-chat
+model: deepseek/deepseek-v4-pro
 tools: [read, write, bash]
 max_think_depth: 3
 sprite: ai_engineer.png

@@ -2,7 +2,7 @@
 name: merchant
 display_name: 商人
 role: builder
-model: deepseek/deepseek-chat
+model: deepseek/deepseek-v4-pro
 tools: [read, write, bash]
 max_think_depth: 3
 sprite: merchant.png
