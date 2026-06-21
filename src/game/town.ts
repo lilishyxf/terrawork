@@ -231,7 +231,7 @@ export function createTown(parent: HTMLElement): { game: Phaser.Game; scene: Tow
   const scene = new TownScene();
   const game = new Phaser.Game({
     type: Phaser.AUTO, parent, width: W, height: H,
-    backgroundColor: "#fbf8f1", pixelArt: true, scene,  // pixelArt:精灵放大不模糊
+    backgroundColor: "#0f1115", pixelArt: true, scene,  // 深色页底融合;pixelArt:精灵放大不模糊
   });
   return { game, scene };
 }

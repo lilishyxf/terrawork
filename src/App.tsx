@@ -1,5 +1,5 @@
 // M3-5 完整 View:订阅事件 → 投影 → Phaser 小镇 + 悬停看 think + 任务板侧栏。
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { subscribe, postCommand, postHitl, type TerraEvent, type Phase } from "./ipc/subscribe";
 import { project, agentName, type ViewSnapshot, type NpcSnapshot, type TaskStatus } from "./game/protocol/projection";
 import { createTown, type TownScene } from "./game/town";
@@ -16,6 +16,24 @@ const MODELS: { label: string; value: string }[] = [
   { label: "GPT-4o mini", value: "openai/gpt-4o-mini" },
   { label: "Claude 3.5 Sonnet", value: "anthropic/claude-3-5-sonnet-20241022" },
 ];
+
+// 深色主题调色板(图二风格)
+const T = {
+  bg: "#0f1115", panel: "#171a21", panel2: "#1e222b", border: "#2b313c",
+  text: "#e6e8ec", dim: "#9aa1ad", faint: "#6b7280", accent: "#5b8cff",
+  inputBg: "#11141b",
+};
+const inputCss: CSSProperties = {
+  background: T.inputBg, color: T.text, border: `1px solid ${T.border}`,
+  borderRadius: 10, padding: "9px 12px", outline: "none", fontSize: 14,
+};
+const btnCss: CSSProperties = {
+  background: T.accent, color: "#fff", border: "none", borderRadius: 10,
+  padding: "9px 18px", cursor: "pointer", fontWeight: 600,
+};
+const cardCss: CSSProperties = {
+  background: T.panel, border: `1px solid ${T.border}`, borderRadius: 12,
+};
 
 // task_board 列表的状态颜色(与 Phaser 色板呼应)
 const STATUS_COLOR: Record<TaskStatus, string> = {
@@ -204,44 +222,43 @@ export function App() {
   );
 
   return (
-    <div style={{ padding: 16, fontFamily: "system-ui,sans-serif" }}>
-      <h2 style={{ margin: "4px 0 12px" }}>
-        TerraWorks · 像素小镇 <small style={{ color: "#888" }}>(M4 双向交互)</small>
+    <div style={{ padding: 16, fontFamily: "system-ui,sans-serif", background: T.bg, color: T.text, minHeight: "100vh" }}>
+      <h2 style={{ margin: "4px 0 12px", fontWeight: 700 }}>
+        TerraWorks <span style={{ color: T.dim, fontWeight: 400 }}>· 像素小镇</span>
+        <small style={{ color: T.faint, marginLeft: 8, fontWeight: 400 }}>双向编排工作台</small>
       </h2>
-      <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 8 }}>
+      <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 12 }}>
         <input value={base} onChange={(e) => setBase(e.target.value)}
-               style={{ flex: 2, padding: 6 }} />
+               style={{ ...inputCss, flex: 2 }} />
         <input value={session} onChange={(e) => setSession(e.target.value)}
-               style={{ flex: 1, padding: 6 }} placeholder="session id" />
-        <button onClick={connect} style={{ padding: "6px 16px" }}>连接</button>
-        <span style={{ marginLeft: 8 }}>
-          {connected ? "已连接" : "未连接"} ｜ 阶段:
-          <b style={{ color: phase === "live" ? "#2a7" : phase === "catchup" ? "#a72" : "#888" }}>
-            {" "}{phase}
-          </b>
-          {" "}｜ 事件:<b>{count}</b>
+               style={{ ...inputCss, flex: 1 }} placeholder="session id" />
+        <button onClick={connect} style={btnCss}>连接</button>
+        <span style={{ marginLeft: 8, fontSize: 13, color: T.dim }}>
+          <span style={{ color: connected ? "#3ddc84" : T.faint }}>●</span> {connected ? "已连接" : "未连接"}
+          {" "}｜ <b style={{ color: phase === "live" ? "#3ddc84" : phase === "catchup" ? "#e0a72e" : T.faint }}>{phase}</b>
+          {" "}｜ 事件 <b style={{ color: T.text }}>{count}</b>
         </span>
       </div>
 
       {/* HITL 回应面板:有未回应的卡口时高亮(对应小镇里 at_glass 闪烁) */}
       {openHitl && (
         <div style={{
-          marginBottom: 10, padding: 12, border: "2px solid #e74c3c", borderRadius: 6,
-          background: "#fff5f5",
+          marginBottom: 10, padding: 12, border: "1px solid #e0524a", borderRadius: 12,
+          background: "#241518",
         }}>
           <div style={{ marginBottom: 6 }}>
-            🔔 <b>需要你回应</b>
-            {openHitl.task_id && <code style={{ marginLeft: 6 }}>{openHitl.task_id}</code>}
-            <div style={{ color: "#666", marginTop: 2 }}>{openHitl.question}</div>
+            🔔 <b style={{ color: "#ff8a80" }}>需要你回应</b>
+            {openHitl.task_id && <code style={{ marginLeft: 6, color: T.dim }}>{openHitl.task_id}</code>}
+            <div style={{ color: T.dim, marginTop: 2 }}>{openHitl.question}</div>
           </div>
           <textarea value={hitlText} onChange={(e) => setHitlText(e.target.value)}
                     placeholder="给整改指引(选 answer 时填)…"
-                    style={{ width: "100%", minHeight: 48, padding: 6, boxSizing: "border-box" }} />
+                    style={{ ...inputCss, width: "100%", minHeight: 48, boxSizing: "border-box" }} />
           <div style={{ marginTop: 6, display: "flex", gap: 8 }}>
             <button disabled={busy || !hitlText.trim()} onClick={() => answerHitl("answer")}
-                    style={{ padding: "6px 16px" }}>提交整改(重做)</button>
+                    style={btnCss}>提交整改(重做)</button>
             <button disabled={busy} onClick={() => answerHitl("reject")}
-                    style={{ padding: "6px 16px", color: "#c0392b" }}>放弃该任务</button>
+                    style={{ ...btnCss, background: "transparent", color: "#ff8a80", border: "1px solid #e0524a" }}>放弃该任务</button>
           </div>
         </div>
       )}
@@ -251,29 +268,29 @@ export function App() {
         <input value={cmd} onChange={(e) => setCmd(e.target.value)}
                onKeyDown={(e) => { if (e.key === "Enter") sendCommand(); }}
                placeholder="跟向导下个任务…(回车发送)"
-               style={{ flex: 1, padding: 8 }} disabled={busy} />
+               style={{ ...inputCss, flex: 1, borderRadius: 999, padding: "10px 18px" }} disabled={busy} />
         <select value={model} onChange={(e) => setModel(e.target.value)} disabled={busy}
                 title="选择模型(全局覆盖所有 NPC)"
-                style={{ padding: 8, border: "1px solid #ccc", borderRadius: 4 }}>
-          {MODELS.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
+                style={{ ...inputCss, borderRadius: 999, cursor: "pointer" }}>
+          {MODELS.map((m) => <option key={m.value} value={m.value} style={{ background: T.panel }}>{m.label}</option>)}
         </select>
         <button onClick={sendCommand} disabled={busy || !cmd.trim()}
-                style={{ padding: "8px 20px" }}>{busy ? "…" : "下指令"}</button>
+                style={{ ...btnCss, borderRadius: 999, opacity: busy || !cmd.trim() ? 0.5 : 1 }}>{busy ? "…" : "下指令"}</button>
       </div>
 
       {/* 向导对话回复(ADR-023):非任务输入(问候/闲聊)时向导直接回你一句,不建任务卡 */}
       {guideReply && (
         <div style={{
-          marginBottom: 10, padding: "8px 12px", background: "#fff8e1",
-          border: "1px solid #ffe082", borderRadius: 6, fontSize: 13, color: "#5a4f3a",
+          marginBottom: 10, padding: "9px 14px", background: "#1d2330",
+          border: `1px solid ${T.border}`, borderRadius: 10, fontSize: 13, color: T.text,
         }}>
-          <b>向导</b>:{guideReply.text}
+          <b style={{ color: "#ffb74d" }}>向导</b>:{guideReply.text}
         </div>
       )}
 
       <div style={{ display: "flex", gap: 16, alignItems: "flex-start" }}>
         <div style={{ position: "relative" }}>
-          <div ref={townHostRef} style={{ width: 880, height: 560, border: "1px solid #ddd" }} />
+          <div ref={townHostRef} style={{ width: 880, height: 560, border: `1px solid ${T.border}`, borderRadius: 12, overflow: "hidden" }} />
           {hoveredNpc && hover && (
             <ThinkTooltip
               x={hover.x} y={hover.y} id={hover.id} npc={hoveredNpc}
@@ -283,37 +300,37 @@ export function App() {
 
         {/* 右侧:实时动态(图一风格)+ 紧凑任务板 */}
         <aside style={{ width: 320, fontSize: 13, display: "flex", flexDirection: "column", height: 560 }}>
-          <h3 style={{ margin: "0 0 6px", display: "flex", alignItems: "center", gap: 6 }}>
-            实时动态 <span style={{ fontSize: 11, color: "#4caf50" }}>● 直播中</span>
+          <h3 style={{ margin: "0 0 6px", display: "flex", alignItems: "center", gap: 6, color: T.text }}>
+            实时动态 <span style={{ fontSize: 11, color: "#3ddc84" }}>● 直播中</span>
           </h3>
           <div ref={feedRef} style={{
-            flex: 1, overflowY: "auto", border: "1px solid #eee", borderRadius: 6,
-            padding: 8, background: "#fafafa", display: "flex", flexDirection: "column", gap: 6,
+            ...cardCss, flex: 1, overflowY: "auto",
+            padding: 10, display: "flex", flexDirection: "column", gap: 7,
           }}>
-            {feed.length === 0 && <p style={{ color: "#aaa", margin: 0 }}>暂无动态——跟向导下个任务试试</p>}
+            {feed.length === 0 && <p style={{ color: T.faint, margin: 0 }}>暂无动态——跟向导下个任务试试</p>}
             {feed.map((l) => (
-              <div key={l.id} style={{ display: "flex", gap: 6, lineHeight: 1.4 }}>
-                <span style={{ color: "#bbb", fontSize: 11, flexShrink: 0, fontVariantNumeric: "tabular-nums" }}>{l.time}</span>
+              <div key={l.id} style={{ display: "flex", gap: 6, lineHeight: 1.45 }}>
+                <span style={{ color: T.faint, fontSize: 11, flexShrink: 0, fontVariantNumeric: "tabular-nums" }}>{l.time}</span>
                 <span>
                   <b style={{ color: TONE_COLOR[l.tone] }}>{l.actor}</b>
-                  <span style={{ color: "#444" }}> {l.text}</span>
+                  <span style={{ color: T.dim }}> {l.text}</span>
                 </span>
               </div>
             ))}
           </div>
 
           {/* 紧凑任务板 */}
-          <h4 style={{ margin: "10px 0 6px" }}>任务板 ({tasks.length})</h4>
+          <h4 style={{ margin: "12px 0 6px", color: T.text }}>任务板 ({tasks.length})</h4>
           {tasks.length === 0
-            ? <p style={{ color: "#aaa", margin: 0 }}>暂无任务</p>
+            ? <p style={{ color: T.faint, margin: 0 }}>暂无任务</p>
             : (
-              <ul style={{ listStyle: "none", padding: 0, margin: 0, maxHeight: 130, overflowY: "auto" }}>
+              <ul style={{ ...cardCss, listStyle: "none", padding: 8, margin: 0, maxHeight: 130, overflowY: "auto" }}>
                 {tasks.map(([tid, slot]) => (
                   <li key={tid} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
-                    <code style={{ fontSize: 12 }}>{tid}</code>
+                    <code style={{ fontSize: 12, color: T.dim }}>{tid}</code>
                     <span style={{
                       background: STATUS_COLOR[slot.status], color: "white",
-                      padding: "1px 6px", borderRadius: 3, fontSize: 11,
+                      padding: "1px 7px", borderRadius: 999, fontSize: 11,
                     }}>{slot.status}</span>
                   </li>
                 ))}
@@ -322,10 +339,10 @@ export function App() {
         </aside>
       </div>
 
-      <p style={{ fontSize: 12, color: "#888", marginTop: 8 }}>
-        💡 悬停任意小人,看它的<b>职位</b>和此刻的<b>思考</b>。脚边的小圆点是它的状态——
+      <p style={{ fontSize: 12, color: T.faint, marginTop: 10 }}>
+        💡 悬停任意小人,看它的<b style={{ color: T.dim }}>职能</b>和此刻的<b style={{ color: T.dim }}>思考</b>。脚边小圆点是状态——
         <span style={{ color: "#4a8c4a" }}>●空闲</span>{" "}
-        <span style={{ color: "#2e86c1" }}>●干活中</span>{" "}
+        <span style={{ color: "#3a9bdc" }}>●干活中</span>{" "}
         <span style={{ color: "#9b59b6" }}>●验证</span>{" "}
         <span style={{ color: "#16a085" }}>●审查</span>{" "}
         <span style={{ color: "#e74c3c" }}>●需要你</span>。
