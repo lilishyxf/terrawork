@@ -14,6 +14,7 @@ advance-runner:每 session 单飞(threading + dirty 标志)——运行中到达
 import asyncio
 import os
 import subprocess
+import sys
 import threading
 import time
 import traceback
@@ -214,11 +215,10 @@ def create_app(
         root = _ws["root"]
         return {"path": str(root), "is_git": (root / ".git").is_dir()}
 
-    @app.post("/workspace")
-    def set_workspace(body: _WorkspaceBody):
+    def _apply_workspace(path_str: str):
         """切到目标仓库(NPC 在此 git 改代码、merge 进 main)。规整到 main、要求干净;
         拒绝指向 TerraWorks 自身。非 git 目录自动 init。"""
-        p = Path(body.path).expanduser().resolve()
+        p = Path(path_str).expanduser().resolve()
         if not p.is_dir():
             raise HTTPException(400, f"目录不存在:{p}")
         if p == _PRODUCT_ROOT:
@@ -238,6 +238,30 @@ def create_app(
                 raise HTTPException(409, "无法切到 main 分支")
         _ws["root"] = p
         return {"path": str(p), "is_git": True}
+
+    @app.post("/workspace")
+    def set_workspace(body: _WorkspaceBody):
+        return _apply_workspace(body.path)
+
+    @app.post("/workspace/pick")
+    def pick_workspace():
+        """本机弹出系统原生文件夹对话框(后端进程,子进程跑 tkinter),选中即切换。
+        浏览器拿不到服务器端路径,故由本地后端代开原生框——单机壳的正解。"""
+        code = (
+            "import tkinter as tk;from tkinter import filedialog;"
+            "r=tk.Tk();r.withdraw();r.attributes('-topmost',True);"
+            "p=filedialog.askdirectory(title='选择 NPC 要干活的项目文件夹');print(p)"
+        )
+        try:
+            proc = subprocess.run([sys.executable, "-c", code], capture_output=True,
+                                  text=True, encoding="utf-8", errors="replace", timeout=300)
+        except Exception as e:
+            raise HTTPException(500, f"无法打开文件夹对话框:{e}")
+        chosen = (proc.stdout or "").strip().splitlines()
+        path = chosen[-1].strip() if chosen else ""
+        if not path:
+            return {"path": str(_ws["root"]), "cancelled": True}   # 用户取消
+        return _apply_workspace(path)
 
     @app.get("/workspace/tree")
     def workspace_tree():

@@ -102,6 +102,13 @@ export async function setWorkspace(baseUrl: string, path: string): Promise<{ pat
   return await r.json();
 }
 
+/** 工作区:本机弹系统原生文件夹对话框选目录(后端代开)。返回选中路径(取消则 cancelled)。 */
+export async function pickWorkspace(baseUrl: string): Promise<{ path: string; cancelled?: boolean }> {
+  const r = await fetch(`${baseUrl}/workspace/pick`, { method: "POST" });
+  if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || `HTTP ${r.status}`);
+  return await r.json();
+}
+
 /** WebSocket 两阶段订阅:补发积压(phase:catchup)→ caught_up → 实时(phase:live)。 */
 export function subscribe(
   baseUrl: string,

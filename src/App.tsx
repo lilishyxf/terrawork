@@ -1,6 +1,6 @@
 // M3-5 完整 View:订阅事件 → 投影 → Phaser 小镇 + 悬停看 think + 任务板侧栏。
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
-import { subscribe, postCommand, postHitl, fetchWorkspaceTree, fetchWorkspaceFile, getWorkspace, setWorkspace, type TerraEvent, type Phase } from "./ipc/subscribe";
+import { subscribe, postCommand, postHitl, fetchWorkspaceTree, fetchWorkspaceFile, getWorkspace, pickWorkspace, type TerraEvent, type Phase } from "./ipc/subscribe";
 import { project, agentName, type ViewSnapshot, type NpcSnapshot, type TaskStatus } from "./game/protocol/projection";
 import { createTown, type TownScene } from "./game/town";
 import type Phaser from "phaser";
@@ -267,10 +267,9 @@ export function App() {
     if (v === "preview") setPreviewNonce((n) => n + 1);
   }
   async function changeWorkspace() {
-    const p = prompt("输入项目仓库的绝对路径(NPC 将在此改代码、merge 进 main;留空用沙箱):", workspace);
-    if (p == null) return;
     try {
-      const r = await setWorkspace(base, p.trim() || "data/sandbox-repo");
+      const r = await pickWorkspace(base);   // 后端弹系统原生文件夹框
+      if (r.cancelled) return;
       setWorkspaceState(r.path);
       setCurFile(null); setFileText(""); loadTree(); setPreviewNonce((n) => n + 1);
     } catch (e) { alert("切换工作区失败:" + e); }
@@ -279,7 +278,7 @@ export function App() {
     if (!list) return;
     const added: { name: string; content: string }[] = [];
     for (const f of Array.from(list)) {
-      if (f.size > 200_000) { alert(`${f.name} 太大(>200KB),跳过`); continue; }
+      if (f.size > 5_000_000) { alert(`${f.name} 太大(>5MB),跳过`); continue; }
       added.push({ name: f.name, content: await f.text() });
     }
     setAttachments((prev) => [...prev, ...added]);
