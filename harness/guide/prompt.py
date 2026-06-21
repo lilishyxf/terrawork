@@ -25,12 +25,13 @@ def _load_role_file() -> tuple[dict, str]:
 
 
 def get_guide_model() -> str:
-    """Returns roles/guide.md 的 frontmatter.model 字段(ADR-009)。"""
+    """Returns roles/guide.md 的 frontmatter.model(ADR-009);TERRA_MODEL_OVERRIDE 可全局覆盖。"""
+    from harness.llm import resolve_model
     fm, _ = _load_role_file()
     model = fm.get("model")
     if not model:
         raise ValueError(f"{_GUIDE_ROLE_FILE} frontmatter 缺 model 字段")
-    return model
+    return resolve_model(model)
 
 
 def _builder_catalog() -> str:

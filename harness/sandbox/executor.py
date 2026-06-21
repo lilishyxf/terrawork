@@ -200,6 +200,8 @@ def execute_npc(
         role_model = role_frontmatter.get("model")
         if not role_model:
             raise ValueError(f"role '{role}' frontmatter missing 'model' field")
+        from harness.llm import resolve_model
+        role_model = resolve_model(role_model)  # TERRA_MODEL_OVERRIDE 全局覆盖
 
         messages = assemble_context_for_npc(role, task_card)
         if rework_notes:

@@ -7,6 +7,16 @@ import type Phaser from "phaser";
 
 const DEFAULT_BASE = "http://127.0.0.1:8000";
 
+// 模型选择(全局覆盖所有 NPC)。空值=各角色用 roles/*.md 默认。
+// 只列支持 function-calling + JSON 输出的模型(builder 要工具调用);需对应 .env 里的 key。
+const MODELS: { label: string; value: string }[] = [
+  { label: "按角色默认", value: "" },
+  { label: "DeepSeek Chat", value: "deepseek/deepseek-chat" },
+  { label: "GPT-4o", value: "openai/gpt-4o" },
+  { label: "GPT-4o mini", value: "openai/gpt-4o-mini" },
+  { label: "Claude 3.5 Sonnet", value: "anthropic/claude-3-5-sonnet-20241022" },
+];
+
 // sprite_key(= 角色名) → 中文职位(取自 roles/*.md 的 display_name)
 const ROLE_TITLE: Record<string, string> = {
   guide: "向导", blaster: "爆破专家", tailor: "裁缝", appsec: "应用安全工程师",
@@ -113,6 +123,7 @@ export function App() {
   const [snap, setSnap] = useState<ViewSnapshot>(() => project([]));
   const [hover, setHover] = useState<{ id: string; x: number; y: number } | null>(null);
   const [cmd, setCmd] = useState("");           // 指令输入框
+  const [model, setModel] = useState("");       // 模型选择(全局覆盖,空=角色默认)
   const [busy, setBusy] = useState(false);      // 写请求进行中
   // 未回应的 HITL 卡口(at_glass 闪烁时弹回应框)
   const [openHitl, setOpenHitl] = useState<{ event_id: number; question: string; task_id?: string } | null>(null);
@@ -166,7 +177,7 @@ export function App() {
     const text = cmd.trim();
     if (!text || busy) return;
     setBusy(true);
-    try { await postCommand(base, session, text); setCmd(""); }
+    try { await postCommand(base, session, text, model); setCmd(""); }
     catch (err) { alert("发送失败:" + err); }
     finally { setBusy(false); }
   }
@@ -256,6 +267,11 @@ export function App() {
                onKeyDown={(e) => { if (e.key === "Enter") sendCommand(); }}
                placeholder="跟向导下个任务…(回车发送)"
                style={{ flex: 1, padding: 8 }} disabled={busy} />
+        <select value={model} onChange={(e) => setModel(e.target.value)} disabled={busy}
+                title="选择模型(全局覆盖所有 NPC)"
+                style={{ padding: 8, border: "1px solid #ccc", borderRadius: 4 }}>
+          {MODELS.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
+        </select>
         <button onClick={sendCommand} disabled={busy || !cmd.trim()}
                 style={{ padding: "8px 20px" }}>{busy ? "…" : "下指令"}</button>
       </div>

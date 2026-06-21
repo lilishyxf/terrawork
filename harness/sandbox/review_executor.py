@@ -60,7 +60,8 @@ def review_task(
         if llm_client is None:
             llm_client = get_llm_client()
         role = _role_of(reviewer_instance_id)
-        model = load_role_frontmatter(role).get("model")
+        from harness.llm import resolve_model
+        model = resolve_model(load_role_frontmatter(role).get("model"))  # 全局覆盖
         messages = assemble_review_context(task_card, events, role_name=role)
         verdict, notes = _parse_review(llm_client.complete(model=model, messages=messages))
         # 机器判定权威(后置硬约束):无通过的 verify_run 不得 pass,即便 LLM 说 pass

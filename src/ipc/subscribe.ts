@@ -46,10 +46,12 @@ export async function fetchEvents(
 }
 
 /** 写半边(ADR-022):下指令。POST /command → 后台 advance 驱动,结果经 WS 流回。 */
-export async function postCommand(baseUrl: string, sessionId: string, text: string): Promise<number> {
+export async function postCommand(
+  baseUrl: string, sessionId: string, text: string, model?: string,
+): Promise<number> {
   const r = await fetch(`${baseUrl}/sessions/${sessionId}/command`, {
     method: "POST", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ text }),
+    body: JSON.stringify({ text, model: model || null }),
   });
   if (!r.ok) throw new Error(`command failed: HTTP ${r.status}`);
   return (await r.json()).event_id as number;

@@ -12,6 +12,7 @@ advance-runner:每 session 单飞(threading + dirty 标志)——运行中到达
 触发再跑一轮(不漏),同 session 绝不并发(不抢 worktree)。Live 用轮询 SQLite(对子进程写鲁棒)。
 """
 import asyncio
+import os
 import threading
 import traceback
 from pathlib import Path
@@ -37,6 +38,7 @@ def _read_events(db_path, sid: str, since: int = 0, limit=None) -> list[dict]:
 
 class _CommandBody(BaseModel):
     text: str
+    model: str | None = None   # 模型选择(全局覆盖);空/None=各角色默认
 
 
 class _HitlBody(BaseModel):
@@ -125,6 +127,8 @@ def create_app(
     def post_command(sid: str, body: _CommandBody):
         if not body.text.strip():
             raise HTTPException(400, "text 不能为空")
+        # 模型选择(全局覆盖):设/清 TERRA_MODEL_OVERRIDE,advance 各 LLM 调用读它
+        os.environ["TERRA_MODEL_OVERRIDE"] = (body.model or "").strip()
         store = SessionStore(db_path, session_id=sid)
         try:
             ev = store.append_event(agent="user", type="user_command",
