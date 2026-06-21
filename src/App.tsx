@@ -294,9 +294,9 @@ export function App() {
 
   return (
     <div style={{ padding: 16, fontFamily: "system-ui,sans-serif", background: T.bg, color: T.text, minHeight: "100vh" }}>
-      <h2 style={{ margin: "4px 0 12px", fontWeight: 700, display: "flex", alignItems: "center", gap: 10 }}>
-        TerraWorks <span style={{ color: T.dim, fontWeight: 400 }}>· 像素小镇</span>
-        <small style={{ color: T.faint, fontWeight: 400 }}>双向编排工作台</small>
+      <h2 style={{ margin: "4px 0 12px", fontWeight: 700, display: "flex", alignItems: "center", gap: 12 }}>
+        <img src="/logo.png" alt="TerraWorks" style={{ height: 46, borderRadius: 8, display: "block" }} />
+        <small style={{ color: T.faint, fontWeight: 400 }}>像素小镇 · 双向编排工作台</small>
         <span style={{ flex: 1 }} />
         <span style={{ fontSize: 13, color: T.dim, fontWeight: 400 }}>
           <span style={{ color: connected ? "#3ddc84" : "#e0524a" }}>●</span>{" "}
