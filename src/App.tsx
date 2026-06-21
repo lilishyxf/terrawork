@@ -1,6 +1,6 @@
 // M3-5 完整 View:订阅事件 → 投影 → Phaser 小镇 + 悬停看 think + 任务板侧栏。
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
-import { subscribe, postCommand, postHitl, fetchSandboxTree, fetchSandboxFile, type TerraEvent, type Phase } from "./ipc/subscribe";
+import { subscribe, postCommand, postHitl, fetchWorkspaceTree, fetchWorkspaceFile, getWorkspace, setWorkspace, type TerraEvent, type Phase } from "./ipc/subscribe";
 import { project, agentName, type ViewSnapshot, type NpcSnapshot, type TaskStatus } from "./game/protocol/projection";
 import { createTown, type TownScene } from "./game/town";
 import type Phaser from "phaser";
@@ -149,6 +149,7 @@ export function App() {
   const [curFile, setCurFile] = useState<string | null>(null);
   const [fileText, setFileText] = useState("");
   const [previewNonce, setPreviewNonce] = useState(0);   // 刷新 iframe 用
+  const [workspace, setWorkspaceState] = useState("");   // 当前目标仓库路径
   const reconnectRef = useRef<number | null>(null);
   const cursorRef = useRef(0);        // 已收到的最大 event_id(重连续传用)
   const genRef = useRef(0);           // 连接代次:只认最新连接的断开
@@ -250,17 +251,27 @@ export function App() {
   }
 
   async function loadTree() {
-    try { setFiles(await fetchSandboxTree(base)); } catch { setFiles([]); }
+    try { setFiles(await fetchWorkspaceTree(base)); } catch { setFiles([]); }
+    try { setWorkspaceState((await getWorkspace(base)).path); } catch { /* 忽略 */ }
   }
   async function openFile(path: string) {
     setCurFile(path);
-    try { setFileText(await fetchSandboxFile(base, path)); }
+    try { setFileText(await fetchWorkspaceFile(base, path)); }
     catch (e) { setFileText("(读取失败:" + e + ")"); }
   }
   function switchView(v: "town" | "files" | "preview") {
     setView(v);
     if (v === "files") loadTree();
     if (v === "preview") setPreviewNonce((n) => n + 1);
+  }
+  async function changeWorkspace() {
+    const p = prompt("输入项目仓库的绝对路径(NPC 将在此改代码、merge 进 main;留空用沙箱):", workspace);
+    if (p == null) return;
+    try {
+      const r = await setWorkspace(base, p.trim() || "data/sandbox-repo");
+      setWorkspaceState(r.path);
+      setCurFile(null); setFileText(""); loadTree(); setPreviewNonce((n) => n + 1);
+    } catch (e) { alert("切换工作区失败:" + e); }
   }
 
   const hoveredNpc: NpcSnapshot | null = hover ? snap.npcs[hover.id] ?? null : null;
@@ -361,7 +372,11 @@ export function App() {
                 刷新
               </button>
             )}
-            {view === "files" && <span style={{ color: T.faint, fontSize: 12 }}>沙箱仓库 data/sandbox-repo</span>}
+            <span style={{ flex: 1 }} />
+            <button onClick={changeWorkspace} title="选择 NPC 干活的项目仓库"
+              style={{ padding: "6px 12px", borderRadius: 8, cursor: "pointer", background: "transparent", color: T.dim, border: `1px solid ${T.border}` }}>
+              📂 项目{workspace ? ":" + workspace.split(/[\\/]/).pop() : ""}
+            </button>
           </div>
 
           <div style={{ position: "relative", width: 880, height: 560 }}>
@@ -396,7 +411,7 @@ export function App() {
             {/* 预览:内嵌运行沙箱里的 index.html */}
             {view === "preview" && (
               <iframe key={previewNonce} title="preview"
-                src={`${base}/sandbox/static/index.html?t=${previewNonce}`}
+                src={`${base}/workspace/raw/index.html?t=${previewNonce}`}
                 style={{ width: 880, height: 560, border: `1px solid ${T.border}`, borderRadius: 12, background: "#fff" }} />
             )}
           </div>

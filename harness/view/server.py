@@ -13,6 +13,7 @@ advance-runner:每 session 单飞(threading + dirty 标志)——运行中到达
 """
 import asyncio
 import os
+import subprocess
 import threading
 import time
 import traceback
@@ -20,8 +21,7 @@ from pathlib import Path
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
-from fastapi.staticfiles import StaticFiles
+from fastapi.responses import JSONResponse, FileResponse
 from pydantic import BaseModel
 
 from harness.session.store import SessionStore
@@ -49,6 +49,10 @@ class _HitlBody(BaseModel):
     text: str | None = None
 
 
+class _WorkspaceBody(BaseModel):
+    path: str               # 目标项目仓库的绝对路径
+
+
 def create_app(
     db_path,
     *,
@@ -61,6 +65,9 @@ def create_app(
 ) -> FastAPI:
     db_path = Path(db_path)
     advance_fn = advance_fn or _real_advance
+    # 工作区(目标仓库)可运行时切换:默认沙箱,用户可指向真实项目(merge 进其 main)。
+    _ws = {"root": Path(repo_root).resolve()}
+    _PRODUCT_ROOT = Path(__file__).resolve().parents[2]
     app = FastAPI(title="TerraWorks View API", version="0.2")
     app.add_middleware(
         CORSMiddleware, allow_origins=["*"],
@@ -82,7 +89,7 @@ def create_app(
                 _dirty[sid] = False
             store = SessionStore(db_path, session_id=sid)
             try:
-                advance_fn(store, llm_client=llm_client, repo_root=repo_root,
+                advance_fn(store, llm_client=llm_client, repo_root=_ws["root"],
                            worktrees_base=worktrees_base, max_rework=max_rework)
                 fails = 0
             except Exception:
@@ -185,28 +192,61 @@ def create_app(
         _ensure_advance(sid)
         return JSONResponse({"event_id": ev["event_id"]}, status_code=202)
 
-    # ---- 成果可视化:沙箱仓库文件浏览 + 静态预览(只读)----
+    # ---- 工作区(目标仓库):切换 + 文件浏览 + 动态预览 ----
     _SKIP = ("/.git/", "__pycache__")
 
-    @app.get("/sandbox/tree")
-    def sandbox_tree():
-        """列出沙箱仓库内的文件(相对路径),供前端"文件"浏览。"""
-        root = Path(repo_root).resolve()
+    def _git(args, cwd):
+        # 显式 utf-8 解码:中文 Windows 默认 GBK 会在 git 输出含 UTF-8 时炸
+        return subprocess.run(["git", *args], cwd=str(cwd), capture_output=True,
+                              text=True, encoding="utf-8", errors="replace")
+
+    @app.get("/workspace")
+    def get_workspace():
+        root = _ws["root"]
+        return {"path": str(root), "is_git": (root / ".git").is_dir()}
+
+    @app.post("/workspace")
+    def set_workspace(body: _WorkspaceBody):
+        """切到目标仓库(NPC 在此 git 改代码、merge 进 main)。规整到 main、要求干净;
+        拒绝指向 TerraWorks 自身。非 git 目录自动 init。"""
+        p = Path(body.path).expanduser().resolve()
+        if not p.is_dir():
+            raise HTTPException(400, f"目录不存在:{p}")
+        if p == _PRODUCT_ROOT:
+            raise HTTPException(400, "不能指向 TerraWorks 产品仓库自身(会污染本项目)")
+        if not (p / ".git").is_dir():
+            _git(["init", "-b", "main"], p)
+            _git(["config", "user.name", "TerraWorks"], p)
+            _git(["config", "user.email", "agent@terraworks.local"], p)
+            _git(["add", "-A"], p)
+            _git(["commit", "-m", "terraworks: 初始化工作区", "--allow-empty"], p)
+        else:
+            if _git(["status", "--porcelain"], p).stdout.strip():
+                raise HTTPException(409, "目标仓库有未提交改动,请先提交或暂存再切换(NPC 需干净的 main)")
+            if _git(["rev-parse", "--verify", "main"], p).returncode != 0:
+                _git(["branch", "main"], p)        # 从当前 HEAD 建 main(不动原分支)
+            if _git(["checkout", "main"], p).returncode != 0:
+                raise HTTPException(409, "无法切到 main 分支")
+        _ws["root"] = p
+        return {"path": str(p), "is_git": True}
+
+    @app.get("/workspace/tree")
+    def workspace_tree():
+        root = _ws["root"]
         files = []
         if root.is_dir():
-            for p in sorted(root.rglob("*")):
-                if not p.is_file():
+            for fp in sorted(root.rglob("*")):
+                if not fp.is_file():
                     continue
-                rel = p.relative_to(root).as_posix()
+                rel = fp.relative_to(root).as_posix()
                 if any(s in f"/{rel}" for s in _SKIP) or rel.endswith(".pyc"):
                     continue
                 files.append(rel)
         return {"files": files}
 
-    @app.get("/sandbox/file")
-    def sandbox_file(path: str):
-        """读单个沙箱文件内容(路径限制在沙箱内,防越界)。"""
-        root = Path(repo_root).resolve()
+    @app.get("/workspace/file")
+    def workspace_file(path: str):
+        root = _ws["root"].resolve()
         target = (root / path).resolve()
         if not str(target).startswith(str(root)) or not target.is_file():
             raise HTTPException(404, "not found")
@@ -216,11 +256,13 @@ def create_app(
             content = "(二进制或不可读文件)"
         return {"path": path, "content": content}
 
-    # 静态托管沙箱目录,供"预览"用 iframe 当场运行(如 index.html)
-    app.mount(
-        "/sandbox/static",
-        StaticFiles(directory=str(repo_root), html=True, check_dir=False),
-        name="sandbox-static",
-    )
+    @app.get("/workspace/raw/{path:path}")
+    def workspace_raw(path: str):
+        """按路径返回工作区文件(供预览 iframe 当场运行 index.html)。"""
+        root = _ws["root"].resolve()
+        target = (root / path).resolve()
+        if not str(target).startswith(str(root)) or not target.is_file():
+            raise HTTPException(404, "not found")
+        return FileResponse(str(target))
 
     return app

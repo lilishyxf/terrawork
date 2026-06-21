@@ -70,18 +70,35 @@ export async function postHitl(
   return (await r.json()).event_id as number;
 }
 
-/** 成果可视化:列沙箱仓库文件(相对路径)。 */
-export async function fetchSandboxTree(baseUrl: string): Promise<string[]> {
-  const r = await fetch(`${baseUrl}/sandbox/tree`);
+/** 工作区:列文件(相对路径)。 */
+export async function fetchWorkspaceTree(baseUrl: string): Promise<string[]> {
+  const r = await fetch(`${baseUrl}/workspace/tree`);
   if (!r.ok) throw new Error(`tree failed: HTTP ${r.status}`);
   return (await r.json()).files as string[];
 }
 
-/** 成果可视化:读单个沙箱文件内容。 */
-export async function fetchSandboxFile(baseUrl: string, path: string): Promise<string> {
-  const r = await fetch(`${baseUrl}/sandbox/file?path=${encodeURIComponent(path)}`);
+/** 工作区:读单个文件内容。 */
+export async function fetchWorkspaceFile(baseUrl: string, path: string): Promise<string> {
+  const r = await fetch(`${baseUrl}/workspace/file?path=${encodeURIComponent(path)}`);
   if (!r.ok) throw new Error(`file failed: HTTP ${r.status}`);
   return (await r.json()).content as string;
+}
+
+/** 工作区:当前目标仓库路径。 */
+export async function getWorkspace(baseUrl: string): Promise<{ path: string; is_git: boolean }> {
+  const r = await fetch(`${baseUrl}/workspace`);
+  if (!r.ok) throw new Error(`workspace failed: HTTP ${r.status}`);
+  return await r.json();
+}
+
+/** 工作区:切到目标项目仓库(NPC 在此改代码、merge 进 main)。 */
+export async function setWorkspace(baseUrl: string, path: string): Promise<{ path: string }> {
+  const r = await fetch(`${baseUrl}/workspace`, {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ path }),
+  });
+  if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || `HTTP ${r.status}`);
+  return await r.json();
 }
 
 /** WebSocket 两阶段订阅:补发积压(phase:catchup)→ caught_up → 实时(phase:live)。 */
