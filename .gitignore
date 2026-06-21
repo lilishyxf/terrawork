@@ -45,3 +45,9 @@ frame_montage_*.png
 # 室内图原始备份(裁切前),不入库
 public/rooms/*_raw.png
 data/archive/
+
+# Tauri sidecar 二进制(打包产物,勿入库)
+src-tauri/binaries/
+build/pyi-dist/
+build/pyi-work/
+build/*.spec
