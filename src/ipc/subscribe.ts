@@ -70,6 +70,20 @@ export async function postHitl(
   return (await r.json()).event_id as number;
 }
 
+/** 成果可视化:列沙箱仓库文件(相对路径)。 */
+export async function fetchSandboxTree(baseUrl: string): Promise<string[]> {
+  const r = await fetch(`${baseUrl}/sandbox/tree`);
+  if (!r.ok) throw new Error(`tree failed: HTTP ${r.status}`);
+  return (await r.json()).files as string[];
+}
+
+/** 成果可视化:读单个沙箱文件内容。 */
+export async function fetchSandboxFile(baseUrl: string, path: string): Promise<string> {
+  const r = await fetch(`${baseUrl}/sandbox/file?path=${encodeURIComponent(path)}`);
+  if (!r.ok) throw new Error(`file failed: HTTP ${r.status}`);
+  return (await r.json()).content as string;
+}
+
 /** WebSocket 两阶段订阅:补发积压(phase:catchup)→ caught_up → 实时(phase:live)。 */
 export function subscribe(
   baseUrl: string,

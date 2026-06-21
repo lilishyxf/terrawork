@@ -20,6 +20,7 @@ from pathlib import Path
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from harness.session.store import SessionStore
@@ -156,5 +157,43 @@ def create_app(
             store.close()
         _ensure_advance(sid)
         return JSONResponse({"event_id": ev["event_id"]}, status_code=202)
+
+    # ---- 成果可视化:沙箱仓库文件浏览 + 静态预览(只读)----
+    _SKIP = ("/.git/", "__pycache__")
+
+    @app.get("/sandbox/tree")
+    def sandbox_tree():
+        """列出沙箱仓库内的文件(相对路径),供前端"文件"浏览。"""
+        root = Path(repo_root).resolve()
+        files = []
+        if root.is_dir():
+            for p in sorted(root.rglob("*")):
+                if not p.is_file():
+                    continue
+                rel = p.relative_to(root).as_posix()
+                if any(s in f"/{rel}" for s in _SKIP) or rel.endswith(".pyc"):
+                    continue
+                files.append(rel)
+        return {"files": files}
+
+    @app.get("/sandbox/file")
+    def sandbox_file(path: str):
+        """读单个沙箱文件内容(路径限制在沙箱内,防越界)。"""
+        root = Path(repo_root).resolve()
+        target = (root / path).resolve()
+        if not str(target).startswith(str(root)) or not target.is_file():
+            raise HTTPException(404, "not found")
+        try:
+            content = target.read_text(encoding="utf-8")
+        except (UnicodeDecodeError, OSError):
+            content = "(二进制或不可读文件)"
+        return {"path": path, "content": content}
+
+    # 静态托管沙箱目录,供"预览"用 iframe 当场运行(如 index.html)
+    app.mount(
+        "/sandbox/static",
+        StaticFiles(directory=str(repo_root), html=True, check_dir=False),
+        name="sandbox-static",
+    )
 
     return app

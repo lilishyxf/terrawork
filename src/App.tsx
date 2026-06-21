@@ -1,6 +1,6 @@
 // M3-5 完整 View:订阅事件 → 投影 → Phaser 小镇 + 悬停看 think + 任务板侧栏。
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
-import { subscribe, postCommand, postHitl, type TerraEvent, type Phase } from "./ipc/subscribe";
+import { subscribe, postCommand, postHitl, fetchSandboxTree, fetchSandboxFile, type TerraEvent, type Phase } from "./ipc/subscribe";
 import { project, agentName, type ViewSnapshot, type NpcSnapshot, type TaskStatus } from "./game/protocol/projection";
 import { createTown, type TownScene } from "./game/town";
 import type Phaser from "phaser";
@@ -143,6 +143,12 @@ export function App() {
   const [guideReply, setGuideReply] = useState<{ event_id: number; text: string } | null>(null);
   const [feed, setFeed] = useState<FeedLine[]>([]);   // 实时动态流(图一风格)
   const feedRef = useRef<HTMLDivElement | null>(null);
+  // 成果可视化:小镇 / 文件 / 预览
+  const [view, setView] = useState<"town" | "files" | "preview">("town");
+  const [files, setFiles] = useState<string[]>([]);
+  const [curFile, setCurFile] = useState<string | null>(null);
+  const [fileText, setFileText] = useState("");
+  const [previewNonce, setPreviewNonce] = useState(0);   // 刷新 iframe 用
   const reconnectRef = useRef<number | null>(null);
   const cursorRef = useRef(0);        // 已收到的最大 event_id(重连续传用)
   const genRef = useRef(0);           // 连接代次:只认最新连接的断开
@@ -243,6 +249,20 @@ export function App() {
     }, 2000);
   }
 
+  async function loadTree() {
+    try { setFiles(await fetchSandboxTree(base)); } catch { setFiles([]); }
+  }
+  async function openFile(path: string) {
+    setCurFile(path);
+    try { setFileText(await fetchSandboxFile(base, path)); }
+    catch (e) { setFileText("(读取失败:" + e + ")"); }
+  }
+  function switchView(v: "town" | "files" | "preview") {
+    setView(v);
+    if (v === "files") loadTree();
+    if (v === "preview") setPreviewNonce((n) => n + 1);
+  }
+
   const hoveredNpc: NpcSnapshot | null = hover ? snap.npcs[hover.id] ?? null : null;
   const tasks = useMemo(
     () => Object.entries(snap.task_board).sort(
@@ -324,13 +344,62 @@ export function App() {
       )}
 
       <div style={{ display: "flex", gap: 16, alignItems: "flex-start" }}>
-        <div style={{ position: "relative" }}>
-          <div ref={townHostRef} style={{ width: 880, height: 560, border: `1px solid ${T.border}`, borderRadius: 12, overflow: "hidden" }} />
-          {hoveredNpc && hover && (
-            <ThinkTooltip
-              x={hover.x} y={hover.y} id={hover.id} npc={hoveredNpc}
-            />
-          )}
+        <div>
+          {/* 标签页:小镇 / 文件 / 预览 */}
+          <div style={{ display: "flex", gap: 6, marginBottom: 8, alignItems: "center" }}>
+            {([["town", "🏘 小镇"], ["files", "📁 文件"], ["preview", "▶ 预览"]] as const).map(([v, label]) => (
+              <button key={v} onClick={() => switchView(v)} style={{
+                padding: "6px 14px", borderRadius: 8, cursor: "pointer", fontWeight: 600,
+                background: view === v ? T.accent : "transparent",
+                color: view === v ? "#fff" : T.dim,
+                border: `1px solid ${view === v ? T.accent : T.border}`,
+              }}>{label}</button>
+            ))}
+            {view !== "town" && (
+              <button onClick={() => (view === "files" ? loadTree() : setPreviewNonce((n) => n + 1))}
+                style={{ padding: "6px 12px", borderRadius: 8, cursor: "pointer", background: "transparent", color: T.dim, border: `1px solid ${T.border}` }}>
+                刷新
+              </button>
+            )}
+            {view === "files" && <span style={{ color: T.faint, fontSize: 12 }}>沙箱仓库 data/sandbox-repo</span>}
+          </div>
+
+          <div style={{ position: "relative", width: 880, height: 560 }}>
+            {/* 小镇:常驻不卸载(保留 Phaser),切走时隐藏 */}
+            <div ref={townHostRef} style={{
+              width: 880, height: 560, border: `1px solid ${T.border}`, borderRadius: 12,
+              overflow: "hidden", display: view === "town" ? "block" : "none",
+            }} />
+            {view === "town" && hoveredNpc && hover && (
+              <ThinkTooltip x={hover.x} y={hover.y} id={hover.id} npc={hoveredNpc} />
+            )}
+
+            {/* 文件:树 + 代码 */}
+            {view === "files" && (
+              <div style={{ ...cardCss, position: "absolute", inset: 0, display: "flex", overflow: "hidden" }}>
+                <div style={{ width: 240, borderRight: `1px solid ${T.border}`, overflowY: "auto", padding: 8, flexShrink: 0 }}>
+                  {files.length === 0 && <p style={{ color: T.faint, margin: 4, fontSize: 12 }}>暂无文件(任务合并后出现)</p>}
+                  {files.map((f) => (
+                    <div key={f} onClick={() => openFile(f)} style={{
+                      padding: "4px 6px", borderRadius: 6, cursor: "pointer", fontSize: 12, marginBottom: 2,
+                      color: curFile === f ? "#fff" : T.dim,
+                      background: curFile === f ? T.accent : "transparent",
+                    }}>{f}</div>
+                  ))}
+                </div>
+                <pre style={{ flex: 1, margin: 0, overflow: "auto", padding: 12, fontSize: 12, color: T.text, whiteSpace: "pre-wrap", lineHeight: 1.5 }}>
+                  {curFile ? fileText : "← 左侧选个文件看代码"}
+                </pre>
+              </div>
+            )}
+
+            {/* 预览:内嵌运行沙箱里的 index.html */}
+            {view === "preview" && (
+              <iframe key={previewNonce} title="preview"
+                src={`${base}/sandbox/static/index.html?t=${previewNonce}`}
+                style={{ width: 880, height: 560, border: `1px solid ${T.border}`, borderRadius: 12, background: "#fff" }} />
+            )}
+          </div>
         </div>
 
         {/* 右侧:实时动态(图一风格)+ 紧凑任务板 */}
