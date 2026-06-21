@@ -110,7 +110,7 @@ def _dispatch_builders_parallel(
         jobs.append((inst, card, ga["event_id"], scripted))
 
     with ThreadPoolExecutor(max_workers=max_concurrent_agents) as ex:
-        futures = [
+        futures = {
             ex.submit(
                 run_npc_subprocess,
                 npc_instance_id=inst, task_card=card,
@@ -118,11 +118,26 @@ def _dispatch_builders_parallel(
                 guide_assign_event_id=eid,
                 repo_root=str(repo_root), worktrees_base=str(worktrees_base),
                 scripted_actions=scripted, reuse_worktree=True,
-            )
+            ): (inst, card, eid)
             for (inst, card, eid, scripted) in jobs
-        ]
+        }
         for f in as_completed(futures):
-            f.result()  # 传播子进程异常(NpcSubprocessError),不吞
+            inst, card, eid = futures[f]
+            try:
+                f.result()
+            except Exception as exc:  # 单 builder 失败 → 记 error,不拖垮整批/advance
+                _append_builder_error(store, inst, card, eid, exc)
+
+
+def _append_builder_error(store, inst, card, trigger_eid, exc):
+    """builder 失败 → 落 error 事件(韧性:单 NPC 失败变成可见错误,不拖垮整个 advance;
+    _decide 见到该卡有 error 即不再重派,避免无限重试)。"""
+    store.append_event(
+        agent=inst, type="error", parent_event_id=trigger_eid,
+        session_id=store.session_id,
+        payload={"kind": "exception", "message": str(exc)[:500],
+                 "task_id": card["task_id"], "agent_ref": inst},
+    )
 
 
 def _append_guide_event(store, ev):
@@ -195,6 +210,9 @@ def _decide(events, max_rework):
         if d is None:
             continue
         tid = d["payload"]["task_card"]["task_id"]
+        # 韧性:builder 已 error 的卡不再续作/重派(否则无限重试同一失败)
+        if _has_later(events, a["event_id"], {"error"}, task_id=tid):
+            continue
         if not _has_later(events, a["event_id"], {"review_request"}, task_id=tid):
             return ("finish_build", a)
 
@@ -368,12 +386,15 @@ def advance(
             )
             scripted = (builder_scripted_actions or {}).get(card["task_id"])
             reuse = (worktrees_base / instance_to_slug(inst)).is_dir()
-            _run_builder(
-                npc_in_subprocess, inst=inst, card=card, store=session_store,
-                trigger_eid=ga["event_id"], repo_root=repo_root,
-                worktrees_base=worktrees_base, llm_client=llm_client,
-                scripted=scripted, reuse=reuse,
-            )
+            try:
+                _run_builder(
+                    npc_in_subprocess, inst=inst, card=card, store=session_store,
+                    trigger_eid=ga["event_id"], repo_root=repo_root,
+                    worktrees_base=worktrees_base, llm_client=llm_client,
+                    scripted=scripted, reuse=reuse,
+                )
+            except Exception as exc:  # builder 失败 → 记 error,不拖垮 advance
+                _append_builder_error(session_store, inst, card, ga["event_id"], exc)
 
         elif kind == "finish_build":
             # 崩溃续作:用既有的 builder guide_assign 重跑 execute_npc,补出缺失的 review_request。
@@ -386,12 +407,15 @@ def advance(
             inst = a["payload"]["assignee_instance"]  # 续作沿用该 assign 的实例
             wt_exists = (worktrees_base / instance_to_slug(inst)).is_dir()
             scripted = (builder_scripted_actions or {}).get(card["task_id"])
-            _run_builder(
-                npc_in_subprocess, inst=inst, card=card, store=session_store,
-                trigger_eid=a["event_id"], repo_root=repo_root,
-                worktrees_base=worktrees_base, llm_client=llm_client,
-                scripted=scripted, reuse=wt_exists,
-            )
+            try:
+                _run_builder(
+                    npc_in_subprocess, inst=inst, card=card, store=session_store,
+                    trigger_eid=a["event_id"], repo_root=repo_root,
+                    worktrees_base=worktrees_base, llm_client=llm_client,
+                    scripted=scripted, reuse=wt_exists,
+                )
+            except Exception as exc:  # builder 失败 → 记 error,不拖垮 advance
+                _append_builder_error(session_store, inst, card, a["event_id"], exc)
 
         elif kind == "dispatch_verifier":
             rr = ctx
