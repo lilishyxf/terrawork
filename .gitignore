@@ -44,3 +44,4 @@ frame_montage_*.png
 
 # 室内图原始备份(裁切前),不入库
 public/rooms/*_raw.png
+data/archive/
