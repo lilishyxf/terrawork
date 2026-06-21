@@ -58,14 +58,40 @@ def _builder_catalog() -> str:
     return "\n".join(rows)
 
 
-def build_messages(trigger_event: dict) -> list[dict]:
+def _state_summary(session_events: list[dict] | None) -> str:
+    """把当前会话状态压成一段可读摘要,供向导回答"进展/为什么失败"这类提问(ADR-023 对话)。
+
+    含:任务板(各卡状态+负责人)、最近错误(失败的 NPC 与原因)。空会话返回 ""。
+    """
+    if not session_events:
+        return ""
+    from harness.view.projection import project
+    snap = project(session_events)
+    parts: list[str] = []
+    tb = snap.get("task_board") or {}
+    if tb:
+        parts.append("任务板:")
+        for tid, slot in tb.items():
+            who = f"(负责:{slot['builder']})" if slot.get("builder") else ""
+            parts.append(f"  - {tid}:{slot['status']}{who}")
+    errs = [e for e in session_events if e.get("type") == "error"]
+    if errs:
+        parts.append("最近错误:")
+        for e in errs[-5:]:
+            p = e.get("payload", {})
+            who = p.get("agent_ref") or e.get("agent")
+            parts.append(f"  - {who}:{str(p.get('message', ''))[:200]}")
+    return "\n".join(parts)
+
+
+def build_messages(trigger_event: dict, session_events: list[dict] | None = None) -> list[dict]:
     """从 trigger user_command 事件构造 LLM messages 列表。
 
-    system 内容 = guide.md body + 动态注入的 builder 专家目录(ADR-019),
-    向导据目录为每张 builder 卡填 assignee_specialty(说不清就省略 → 默认 merchant)。
+    system 内容 = guide.md body + builder 专家目录(ADR-019) + 当前小镇实时状态(ADR-023:
+    使向导能回答用户关于进展/失败的提问,而非只会套话)。
 
     Returns:
-        [{role: "system", content: <guide.md body + 专家目录>},
+        [{role: "system", content: <guide.md body + 专家目录 + 实时状态>},
          {role: "user", content: <trigger.payload.text>}]
     """
     _, system_prompt = _load_role_file()
@@ -77,6 +103,14 @@ def build_messages(trigger_event: dict) -> list[dict]:
             + "为每张 builder 卡的 `assignee_specialty` 选下面**最合适**的 name;"
             + "说不清或通用任务就**省略该字段**(默认 merchant)。\n\n"
             + catalog
+        )
+    summary = _state_summary(session_events)
+    if summary:
+        system_prompt = (
+            system_prompt
+            + "\n\n## 当前小镇实时状态(回答用户提问时据此如实、具体作答)\n"
+            + "用户若问进展/为什么失败/某任务怎么样,**结合下面状态给出具体回答**,不要套话。\n\n"
+            + summary
         )
     user_text = trigger_event["payload"]["text"]
     return [

@@ -126,7 +126,7 @@ export function App() {
   const [snap, setSnap] = useState<ViewSnapshot>(() => project([]));
   const [hover, setHover] = useState<{ id: string; x: number; y: number } | null>(null);
   const [cmd, setCmd] = useState("");           // 指令输入框
-  const [model, setModel] = useState("");       // 模型选择(全局覆盖,空=角色默认)
+  const [model, setModel] = useState(() => localStorage.getItem("terra_model") ?? "");  // 模型(全局覆盖,空=角色默认),记住到本地
   const [busy, setBusy] = useState(false);      // 写请求进行中
   // 未回应的 HITL 卡口(at_glass 闪烁时弹回应框)
   const [openHitl, setOpenHitl] = useState<{ event_id: number; question: string; task_id?: string } | null>(null);
@@ -289,11 +289,14 @@ export function App() {
                onKeyDown={(e) => { if (e.key === "Enter") sendCommand(); }}
                placeholder="跟向导下个任务…(回车发送)"
                style={{ ...inputCss, flex: 1, borderRadius: 999, padding: "10px 18px" }} disabled={busy} />
-        <select value={model} onChange={(e) => setModel(e.target.value)} disabled={busy}
-                title="选择模型(全局覆盖所有 NPC)"
-                style={{ ...inputCss, borderRadius: 999, cursor: "pointer" }}>
-          {MODELS.map((m) => <option key={m.value} value={m.value} style={{ background: T.panel }}>{m.label}</option>)}
-        </select>
+        <input list="model-options" value={model} disabled={busy}
+               onChange={(e) => { setModel(e.target.value); localStorage.setItem("terra_model", e.target.value); }}
+               placeholder="模型(留空=默认)"
+               title="模型 id,全局覆盖所有 NPC。可直接输入(如 deepseek/deepseek-chat);留空用各角色默认"
+               style={{ ...inputCss, borderRadius: 999, width: 230 }} />
+        <datalist id="model-options">
+          {MODELS.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
+        </datalist>
         <button onClick={sendCommand} disabled={busy || !cmd.trim()}
                 style={{ ...btnCss, borderRadius: 999, opacity: busy || !cmd.trim() ? 0.5 : 1 }}>{busy ? "…" : "下指令"}</button>
       </div>

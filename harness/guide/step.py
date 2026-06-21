@@ -53,7 +53,7 @@ def guide_step(
     starting_eid = _next_event_id(session_events)
     ts_iso = datetime.utcnow().isoformat() + "Z"
 
-    messages = build_messages(trigger_event)
+    messages = build_messages(trigger_event, session_events)
     last_error = None
     last_raw = None
 
@@ -85,7 +85,7 @@ def guide_step(
             last_error = f"{type(e).__name__}: {e}"
             if attempt < max_retries - 1:
                 # 重新构造 messages 而非 append,保持 prompt 长度可控
-                messages = build_messages(trigger_event) + [
+                messages = build_messages(trigger_event, session_events) + [
                     {"role": "assistant", "content": last_raw or ""},
                     {"role": "user", "content":
                         f"上一次输出未通过校验:\n{last_error}\n"
