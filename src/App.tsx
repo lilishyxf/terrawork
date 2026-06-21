@@ -58,6 +58,52 @@ function computeGuideReply(events: TerraEvent[]) {
   return last ? { event_id: last.event_id, text: String(last.payload.text ?? "") } : null;
 }
 
+// ── 实时动态 feed:把事件流翻译成人话(图一风格)──────────────────────
+type FeedTone = "user" | "guide" | "agent" | "system" | "alert";
+interface FeedLine { id: number; time: string; actor: string; text: string; tone: FeedTone; }
+
+const TONE_COLOR: Record<FeedTone, string> = {
+  user: "#2e7d32", guide: "#ef6c00", agent: "#1565c0", system: "#6a1b9a", alert: "#c62828",
+};
+
+function roleFromId(id: string): string { return id.includes("#") ? id.split("#")[0] : id; }
+function actorName(id: string): string {
+  if (id === "user") return "你";
+  if (id === "system") return "系统";
+  return roleTitle(id, roleFromId(id));
+}
+function fmtTime(ts?: string): string {
+  if (!ts) return "";
+  const d = new Date(ts);
+  return isNaN(d.getTime()) ? "" : d.toLocaleTimeString("zh-CN", { hour12: false });
+}
+function trunc(s: string, n: number): string { return s.length > n ? s.slice(0, n) + "…" : s; }
+
+// 事件 → 一条动态;返回 null = 内部噪声(tool_intent/guide_assign 等)不显示
+function eventToFeed(e: TerraEvent): FeedLine | null {
+  const p = e.payload ?? {};
+  const S = (v: unknown) => String(v ?? "");
+  const b = { id: e.event_id, time: fmtTime(e.ts) };
+  switch (e.type) {
+    case "user_command": return { ...b, actor: "你", text: `「${S(p.text)}」`, tone: "user" };
+    case "guide_think": return { ...b, actor: "向导", text: trunc(S(p.text), 140), tone: "guide" };
+    case "guide_delegate": {
+      const tc = p.task_card as { objective?: string } | undefined;
+      return { ...b, actor: "向导", text: `启动任务:${trunc(S(tc?.objective), 70)}`, tone: "guide" };
+    }
+    case "npc_think": return { ...b, actor: actorName(e.agent), text: trunc(S(p.text), 140), tone: "agent" };
+    case "tool_done": return { ...b, actor: actorName(e.agent), text: `执行 ${S(p.tool)} ${p.status === "ok" ? "✓" : "✗"}`, tone: "agent" };
+    case "review_request": return { ...b, actor: actorName(e.agent), text: "提交产物,等待审查", tone: "agent" };
+    case "verify_run": return { ...b, actor: "验证", text: `运行 ${trunc(S(p.command), 50)} → ${p.passed ? "通过 ✓" : "未通过 ✗"}`, tone: "system" };
+    case "review_verdict": return { ...b, actor: actorName(S(p.reviewer)), text: `审查${p.verdict === "pass" ? "通过 ✓" : "打回 ✗"}${p.notes ? ":" + trunc(S(p.notes), 70) : ""}`, tone: p.verdict === "pass" ? "agent" : "alert" };
+    case "merge": return { ...b, actor: "系统", text: p.result === "success" ? `已合并 ${S(p.task_id)} ✓` : `合并冲突 ${S(p.task_id)}`, tone: "system" };
+    case "hitl_request": return { ...b, actor: "🔔 需要你", text: trunc(S(p.question), 110), tone: "alert" };
+    case "hitl_response": return { ...b, actor: "你", text: `回应:${p.decision === "answer" ? "整改 " + trunc(S(p.text), 50) : p.decision === "reject" ? "放弃任务" : "批准"}`, tone: "user" };
+    case "error": return { ...b, actor: actorName(S(p.agent_ref) || e.agent), text: `出错:${trunc(S(p.message), 70)}`, tone: "alert" };
+    default: return null;
+  }
+}
+
 export function App() {
   const [base, setBase] = useState(DEFAULT_BASE);
   const [session, setSession] = useState("default");
@@ -72,6 +118,8 @@ export function App() {
   const [openHitl, setOpenHitl] = useState<{ event_id: number; question: string; task_id?: string } | null>(null);
   const [hitlText, setHitlText] = useState("");
   const [guideReply, setGuideReply] = useState<{ event_id: number; text: string } | null>(null);
+  const [feed, setFeed] = useState<FeedLine[]>([]);   // 实时动态流(图一风格)
+  const feedRef = useRef<HTMLDivElement | null>(null);
 
   const subRef = useRef<{ close: () => void } | null>(null);
   const townHostRef = useRef<HTMLDivElement | null>(null);
@@ -97,6 +145,11 @@ export function App() {
     };
   }, []);
 
+  useEffect(() => {  // 新动态进来自动滚到底
+    const el = feedRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [feed]);
+
   function pushEvent(e: TerraEvent) {
     eventsRef.current.push(e);
     setCount(eventsRef.current.length);
@@ -105,6 +158,8 @@ export function App() {
     sceneRef.current?.applySnapshot(next);
     setOpenHitl(computeOpenHitl(eventsRef.current));  // 刷新待回应 HITL
     setGuideReply(computeGuideReply(eventsRef.current));  // 刷新向导对话回复(ADR-023)
+    const line = eventToFeed(e);                      // 追加实时动态
+    if (line) setFeed((prev) => [...prev, line]);
   }
 
   async function sendCommand() {
@@ -134,6 +189,7 @@ export function App() {
     setSnap(project([]));
     setOpenHitl(null);
     setGuideReply(null);
+    setFeed([]);
     setPhase("catchup");
     setConnected(true);
     subRef.current = subscribe(base, session, {
@@ -224,24 +280,44 @@ export function App() {
           )}
         </div>
 
-        {/* 任务板侧栏 */}
-        <aside style={{ width: 240, fontSize: 13 }}>
-          <h3 style={{ margin: "0 0 8px" }}>任务板 ({tasks.length})</h3>
-          {tasks.length === 0 && <p style={{ color: "#aaa" }}>暂无任务</p>}
-          <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
-            {tasks.map(([tid, slot]) => (
-              <li key={tid} style={{ marginBottom: 6, padding: 6, border: "1px solid #eee", borderRadius: 4 }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <code style={{ fontSize: 12 }}>{tid}</code>
-                  <span style={{
-                    background: STATUS_COLOR[slot.status], color: "white",
-                    padding: "2px 6px", borderRadius: 3, fontSize: 11,
-                  }}>{slot.status}</span>
-                </div>
-                {slot.builder && <small style={{ color: "#888" }}>→ {slot.builder}</small>}
-              </li>
+        {/* 右侧:实时动态(图一风格)+ 紧凑任务板 */}
+        <aside style={{ width: 320, fontSize: 13, display: "flex", flexDirection: "column", height: 560 }}>
+          <h3 style={{ margin: "0 0 6px", display: "flex", alignItems: "center", gap: 6 }}>
+            实时动态 <span style={{ fontSize: 11, color: "#4caf50" }}>● 直播中</span>
+          </h3>
+          <div ref={feedRef} style={{
+            flex: 1, overflowY: "auto", border: "1px solid #eee", borderRadius: 6,
+            padding: 8, background: "#fafafa", display: "flex", flexDirection: "column", gap: 6,
+          }}>
+            {feed.length === 0 && <p style={{ color: "#aaa", margin: 0 }}>暂无动态——跟向导下个任务试试</p>}
+            {feed.map((l) => (
+              <div key={l.id} style={{ display: "flex", gap: 6, lineHeight: 1.4 }}>
+                <span style={{ color: "#bbb", fontSize: 11, flexShrink: 0, fontVariantNumeric: "tabular-nums" }}>{l.time}</span>
+                <span>
+                  <b style={{ color: TONE_COLOR[l.tone] }}>{l.actor}</b>
+                  <span style={{ color: "#444" }}> {l.text}</span>
+                </span>
+              </div>
             ))}
-          </ul>
+          </div>
+
+          {/* 紧凑任务板 */}
+          <h4 style={{ margin: "10px 0 6px" }}>任务板 ({tasks.length})</h4>
+          {tasks.length === 0
+            ? <p style={{ color: "#aaa", margin: 0 }}>暂无任务</p>
+            : (
+              <ul style={{ listStyle: "none", padding: 0, margin: 0, maxHeight: 130, overflowY: "auto" }}>
+                {tasks.map(([tid, slot]) => (
+                  <li key={tid} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+                    <code style={{ fontSize: 12 }}>{tid}</code>
+                    <span style={{
+                      background: STATUS_COLOR[slot.status], color: "white",
+                      padding: "1px 6px", borderRadius: 3, fontSize: 11,
+                    }}>{slot.status}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
         </aside>
       </div>
 
