@@ -113,6 +113,13 @@ def build_messages(trigger_event: dict, session_events: list[dict] | None = None
             + summary
         )
     user_text = trigger_event["payload"]["text"]
+    # 附件(ADR-024 延伸):把随指令附上的文本/代码文件并入上下文,供向导据此分解
+    attachments = trigger_event["payload"].get("attachments") or []
+    if attachments:
+        parts = [user_text, "\n\n## 用户附带的文件(作为任务上下文)"]
+        for a in attachments:
+            parts.append(f"\n### 文件:{a.get('name','(未命名)')}\n```\n{a.get('content','')}\n```")
+        user_text = "".join(parts)
     return [
         {"role": "system", "content": system_prompt},
         {"role": "user", "content": user_text},

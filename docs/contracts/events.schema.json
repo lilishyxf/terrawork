@@ -81,7 +81,20 @@
       "additionalProperties": false,
       "required": ["text"],
       "properties": {
-        "text": { "type": "string", "minLength": 1, "description": "玩家下达的（通常模糊的）指令原文。" }
+        "text": { "type": "string", "minLength": 1, "description": "玩家下达的（通常模糊的）指令原文。" },
+        "attachments": {
+          "type": "array",
+          "description": "可选附件（ADR-024 延伸）：随指令附上的文本/代码文件,作为向导任务上下文。",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name", "content"],
+            "properties": {
+              "name": { "type": "string", "minLength": 1 },
+              "content": { "type": "string" }
+            }
+          }
+        }
       }
     },
     "p_user_interact": {

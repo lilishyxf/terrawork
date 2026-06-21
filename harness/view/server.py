@@ -38,9 +38,15 @@ def _read_events(db_path, sid: str, since: int = 0, limit=None) -> list[dict]:
         store.close()
 
 
+class _Attachment(BaseModel):
+    name: str
+    content: str
+
+
 class _CommandBody(BaseModel):
     text: str
     model: str | None = None   # 模型选择(全局覆盖);空/None=各角色默认
+    attachments: list[_Attachment] | None = None   # 可选:文本/代码文件当上下文
 
 
 class _HitlBody(BaseModel):
@@ -164,10 +170,13 @@ def create_app(
             raise HTTPException(400, "text 不能为空")
         # 模型选择(全局覆盖):设/清 TERRA_MODEL_OVERRIDE,advance 各 LLM 调用读它
         os.environ["TERRA_MODEL_OVERRIDE"] = (body.model or "").strip()
+        payload = {"text": body.text}
+        if body.attachments:
+            payload["attachments"] = [{"name": a.name, "content": a.content} for a in body.attachments]
         store = SessionStore(db_path, session_id=sid)
         try:
             ev = store.append_event(agent="user", type="user_command",
-                                    payload={"text": body.text}, session_id=sid)
+                                    payload=payload, session_id=sid)
         finally:
             store.close()
         _ensure_advance(sid)

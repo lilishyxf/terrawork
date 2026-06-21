@@ -150,6 +150,8 @@ export function App() {
   const [fileText, setFileText] = useState("");
   const [previewNonce, setPreviewNonce] = useState(0);   // 刷新 iframe 用
   const [workspace, setWorkspaceState] = useState("");   // 当前目标仓库路径
+  const [attachments, setAttachments] = useState<{ name: string; content: string }[]>([]);  // 附件(文本/代码文件)
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
   const reconnectRef = useRef<number | null>(null);
   const cursorRef = useRef(0);        // 已收到的最大 event_id(重连续传用)
   const genRef = useRef(0);           // 连接代次:只认最新连接的断开
@@ -202,7 +204,7 @@ export function App() {
     const text = cmd.trim();
     if (!text || busy) return;
     setBusy(true);
-    try { await postCommand(base, session, text, model); setCmd(""); }
+    try { await postCommand(base, session, text, model, attachments); setCmd(""); setAttachments([]); }
     catch (err) { alert("发送失败:" + err); }
     finally { setBusy(false); }
   }
@@ -273,6 +275,16 @@ export function App() {
       setCurFile(null); setFileText(""); loadTree(); setPreviewNonce((n) => n + 1);
     } catch (e) { alert("切换工作区失败:" + e); }
   }
+  async function addFiles(list: FileList | null) {
+    if (!list) return;
+    const added: { name: string; content: string }[] = [];
+    for (const f of Array.from(list)) {
+      if (f.size > 200_000) { alert(`${f.name} 太大(>200KB),跳过`); continue; }
+      added.push({ name: f.name, content: await f.text() });
+    }
+    setAttachments((prev) => [...prev, ...added]);
+    if (fileInputRef.current) fileInputRef.current.value = "";  // 允许重复选同一文件
+  }
 
   const hoveredNpc: NpcSnapshot | null = hover ? snap.npcs[hover.id] ?? null : null;
   const tasks = useMemo(
@@ -323,8 +335,26 @@ export function App() {
         </div>
       )}
 
+      {/* 附件 chips(随指令当上下文) */}
+      {attachments.length > 0 && (
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 6 }}>
+          {attachments.map((a, i) => (
+            <span key={i} style={{ ...cardCss, padding: "3px 8px", fontSize: 12, color: T.dim, display: "inline-flex", gap: 6, alignItems: "center" }}>
+              📄 {a.name}
+              <span onClick={() => setAttachments((p) => p.filter((_, j) => j !== i))}
+                style={{ cursor: "pointer", color: T.faint }}>✕</span>
+            </span>
+          ))}
+        </div>
+      )}
+
       {/* 指令栏:跟向导下新任务 / 追加指令 → POST /command */}
       <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
+        <input ref={fileInputRef} type="file" multiple style={{ display: "none" }}
+               onChange={(e) => addFiles(e.target.files)} />
+        <button onClick={() => fileInputRef.current?.click()} disabled={busy}
+                title="附文本/代码文件当任务上下文"
+                style={{ ...inputCss, borderRadius: 999, cursor: "pointer", padding: "10px 14px" }}>📎</button>
         <input value={cmd} onChange={(e) => setCmd(e.target.value)}
                onKeyDown={(e) => { if (e.key === "Enter") sendCommand(); }}
                placeholder="跟向导下个任务…(回车发送)"
