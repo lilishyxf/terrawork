@@ -11,18 +11,18 @@ const DEFAULT_BASE = "http://127.0.0.1:8000";
 // 均支持 function-calling(builder 要工具调用);需对应 .env 里的 key。型号核于 2026-06。
 const MODEL_GROUPS: { provider: string; items: { label: string; value: string }[] }[] = [
   { provider: "DeepSeek", items: [
-    { label: "V4 Pro(强,推荐写代码)", value: "deepseek/deepseek-v4-pro" },
-    { label: "V4 Flash(快/省)", value: "deepseek/deepseek-v4-flash" },
+    { label: "V4 Pro", value: "deepseek/deepseek-v4-pro" },
+    { label: "V4 Flash", value: "deepseek/deepseek-v4-flash" },
   ]},
   { provider: "OpenAI", items: [
     { label: "GPT-5.5", value: "openai/gpt-5.5" },
     { label: "GPT-5.5 Pro", value: "openai/gpt-5.5-pro" },
-    { label: "GPT-5.4 mini(省)", value: "openai/gpt-5.4-mini" },
+    { label: "GPT-5.4 mini", value: "openai/gpt-5.4-mini" },
   ]},
   { provider: "Anthropic", items: [
-    { label: "Claude Opus 4.8(最强)", value: "anthropic/claude-opus-4-8" },
+    { label: "Claude Opus 4.8", value: "anthropic/claude-opus-4-8" },
     { label: "Claude Sonnet 4.6", value: "anthropic/claude-sonnet-4-6" },
-    { label: "Claude Haiku 4.5(省)", value: "anthropic/claude-haiku-4-5" },
+    { label: "Claude Haiku 4.5", value: "anthropic/claude-haiku-4-5" },
   ]},
 ];
 
