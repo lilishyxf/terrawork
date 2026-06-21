@@ -118,8 +118,8 @@ function eventToFeed(e: TerraEvent): FeedLine | null {
 }
 
 export function App() {
-  const [base, setBase] = useState(DEFAULT_BASE);
-  const [session, setSession] = useState("default");
+  const base = DEFAULT_BASE;        // 后端地址固定(单机壳);不再让用户手填
+  const session = "default";
   const [connected, setConnected] = useState(false);
   const [phase, setPhase] = useState<Phase | "idle">("idle");
   const [count, setCount] = useState(0);
@@ -134,6 +134,7 @@ export function App() {
   const [guideReply, setGuideReply] = useState<{ event_id: number; text: string } | null>(null);
   const [feed, setFeed] = useState<FeedLine[]>([]);   // 实时动态流(图一风格)
   const feedRef = useRef<HTMLDivElement | null>(null);
+  const reconnectRef = useRef<number | null>(null);
 
   const subRef = useRef<{ close: () => void } | null>(null);
   const townHostRef = useRef<HTMLDivElement | null>(null);
@@ -150,7 +151,9 @@ export function App() {
       });
       queueMicrotask(() => sceneRef.current?.applySnapshot(project([])));
     }
+    connect();   // 打开即自动连接(无需手动点"连接")
     return () => {
+      if (reconnectRef.current) { clearTimeout(reconnectRef.current); reconnectRef.current = null; }
       subRef.current?.close();
       subRef.current = null;
       gameRef.current?.destroy(true);
@@ -209,9 +212,18 @@ export function App() {
     subRef.current = subscribe(base, session, {
       onEvent: (e, ph) => { setPhase(ph); pushEvent(e); },
       onCaughtUp: () => setPhase("live"),
-      onClose: () => setConnected(false),
-      onError: () => setConnected(false),
+      onClose: () => { setConnected(false); _scheduleReconnect(); },
+      onError: () => { setConnected(false); _scheduleReconnect(); },
     });
+  }
+
+  // 断线后自动重连(后端重启/网络抖动都能自愈,无需用户操作)
+  function _scheduleReconnect() {
+    if (reconnectRef.current) return;
+    reconnectRef.current = window.setTimeout(() => {
+      reconnectRef.current = null;
+      connect();
+    }, 2000);
   }
 
   const hoveredNpc: NpcSnapshot | null = hover ? snap.npcs[hover.id] ?? null : null;
@@ -223,22 +235,22 @@ export function App() {
 
   return (
     <div style={{ padding: 16, fontFamily: "system-ui,sans-serif", background: T.bg, color: T.text, minHeight: "100vh" }}>
-      <h2 style={{ margin: "4px 0 12px", fontWeight: 700 }}>
+      <h2 style={{ margin: "4px 0 12px", fontWeight: 700, display: "flex", alignItems: "center", gap: 10 }}>
         TerraWorks <span style={{ color: T.dim, fontWeight: 400 }}>· 像素小镇</span>
-        <small style={{ color: T.faint, marginLeft: 8, fontWeight: 400 }}>双向编排工作台</small>
-      </h2>
-      <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 12 }}>
-        <input value={base} onChange={(e) => setBase(e.target.value)}
-               style={{ ...inputCss, flex: 2 }} />
-        <input value={session} onChange={(e) => setSession(e.target.value)}
-               style={{ ...inputCss, flex: 1 }} placeholder="session id" />
-        <button onClick={connect} style={btnCss}>连接</button>
-        <span style={{ marginLeft: 8, fontSize: 13, color: T.dim }}>
-          <span style={{ color: connected ? "#3ddc84" : T.faint }}>●</span> {connected ? "已连接" : "未连接"}
-          {" "}｜ <b style={{ color: phase === "live" ? "#3ddc84" : phase === "catchup" ? "#e0a72e" : T.faint }}>{phase}</b>
-          {" "}｜ 事件 <b style={{ color: T.text }}>{count}</b>
+        <small style={{ color: T.faint, fontWeight: 400 }}>双向编排工作台</small>
+        <span style={{ flex: 1 }} />
+        <span style={{ fontSize: 13, color: T.dim, fontWeight: 400 }}>
+          <span style={{ color: connected ? "#3ddc84" : "#e0524a" }}>●</span>{" "}
+          {connected ? (phase === "live" ? "直播中" : "同步中") : "连接中…"}
+          {" "}· 事件 <b style={{ color: T.text }}>{count}</b>
+          {!connected && (
+            <button onClick={connect} style={{
+              marginLeft: 8, background: "transparent", color: T.accent,
+              border: `1px solid ${T.border}`, borderRadius: 8, padding: "2px 10px", cursor: "pointer",
+            }}>重连</button>
+          )}
         </span>
-      </div>
+      </h2>
 
       {/* HITL 回应面板:有未回应的卡口时高亮(对应小镇里 at_glass 闪烁) */}
       {openHitl && (
