@@ -564,7 +564,7 @@ function SettingsModal({ base, providers, setProviders, onClose }: {
           <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 10 }}>
             {PRESETS.map((p) => (
               <button key={p.label} type="button"
-                onClick={() => setForm({ ...form, name: form.name || p.label, base_url: p.base_url, model: p.model })}
+                onClick={() => setForm({ ...form, name: p.label, base_url: p.base_url, model: p.model })}
                 style={{ padding: "4px 10px", borderRadius: 999, cursor: "pointer", fontSize: 12,
                   background: form.base_url === p.base_url ? T.accent : "transparent",
                   color: form.base_url === p.base_url ? "#fff" : T.dim, border: `1px solid ${T.border}` }}>
