@@ -1,102 +1,120 @@
-# TerraWorks
+<div align="center">
 
-**游戏化的多 Agent 编排平台**：像素小镇是操作界面而非装饰——跟向导对话即下任务、点 NPC 即干预、一屏世界即系统全量健康状态。与同类（trace→动画的单向可视化）的本质区别是**双向编排**（动画 ⇄ Harness 操作闭环）。
+<img src="public/logo.png" alt="TerraWorks" height="96" />
 
-> 设计基线见 [ARCHITECTURE.md](ARCHITECTURE.md)（冻结，偏离须先提 ADR）；工程速查与红线见 [PROJECT.md](PROJECT.md)；决策记录见 [docs/adr/](docs/adr/)，契约 schema 见 [docs/contracts/](docs/contracts/)。
+### 游戏化多 Agent 软件开发编排平台
 
-## 当前状态（M1 + M2 全部达成，无头 Harness 可 demo）
+**一队 AI 专家在一座像素小镇里协作写代码——你跟"向导"对话即下任务、点 NPC 即干预、一屏即系统全量健康状态。**
 
-已落地的是**纯后端 Harness**——三抽象中的 Session（仅追加事件日志）与 Sandbox（worktree 隔离）。像素小镇 View（M3）尚未开始，目前无 GUI；演示通过测试套件与日志回放 CLI 进行。
+*A gamified multi-agent orchestration platform where a team of AI specialists collaborates to build software — rendered as an interactive pixel town.*
 
-当前可端到端自动跑通的闭环：
+</div>
 
+---
+
+## 这是什么
+
+TerraWorks 把"多个 AI Agent 协作完成开发任务"的全过程,渲染成一座**可交互的像素小镇**:向导(orchestrator)在大堂分派任务,专家 NPC 在工坊/验证间/审查间各司其职,产物经验证与双重审查后合并交付。
+
+与同类产品(Pixel Agents / AgentRoom 等)的**本质区别在于双向编排闭环**——界面不是 trace→动画的单向被动镜子,而是**动画 ⇄ 编排内核的操作回路**:你能在 Agent 卡住时"敲玻璃"介入、能下指令真正驱动编排。游戏化是信息密度手段,不是装饰。
+
+> 它在"大、可拆、需可信产出"的任务上才显价值:**并行 + 真验证 + 制作者≠检查者审查 + 崩溃续作 + 人在回路干预**——这些是单次对话给不了的"产出可信"保证。
+
+## ✨ 核心特性
+
+- 🧠 **多 Agent 协作流水线**:向导分解 → 专家并行执行 → 机器验证 → 代码审查 + 安全审查 → git merge 仲裁
+- 🔁 **验证-返工 loop**:验证条件必须机器可判定(command + expected exit_code),不过则返工,杜绝"看起来能用"
+- 🛡 **制作者≠检查者(maker-checker)**:审查 Agent 的上下文代码级硬过滤掉"叙述",只看代码/diff/测试结果
+- 🧩 **角色即插件**:Agent = `roles/*.md`,双轴模型(功能角色 × 专长),同角色可多实例并行
+- 🪟 **人在回路(HITL)双向干预**:Agent 卡住"敲玻璃" → 你在界面回应(整改/放弃)→ 经事件回流编排内核
+- 💾 **事件溯源 + 崩溃续作**:仅追加事件日志为唯一事实源,进程强杀后从日志 `wake()` 续作("恢复状态,不恢复思维")
+- 🔌 **可插拔多 LLM 供应商**:cc-switch 式预设 + 一键热切换(DeepSeek / GPT / Claude / Gemini,OpenAI 兼容端点)
+- 🗂 **在你的真实仓库上干活**:指向任意 git 项目,分支→验证→双审→merge 主干,全程可 diff 可回滚
+- 🖥 **桌面应用**:Tauri 2.0 壳 + Python 后端打包为 sidecar 自启,双击即用、零终端依赖
+
+## 🏛 架构
+
+三层 + View,CQRS 单向数据流(View 只读 Session,玩家交互一律转 `user_*` 事件交 Harness 消费)。
+
+```mermaid
+flowchart LR
+    U["用户 / View<br/>Phaser 像素小镇"] -- "user_* 事件" --> S[("Session<br/>SQLite WAL<br/>仅追加事件日志")]
+    S -- "投影 projection" --> U
+    H["Harness<br/>无状态编排内核"] -- "读事件 / 写决策" --> S
+    H -- "派发" --> SB["Sandbox<br/>per-Agent git worktree<br/>+ 子进程隔离"]
+    SB -- "产物事件" --> S
 ```
-用户一句模糊指令
-  → Guide 分解为任务卡，并**自动匹配专家**（界面卡→frontend、接口卡→backend…，ADR-019）
-    （test-first：测试卡 + 实现卡 depends_on 测试卡）
-  → 多实例执行（按专长实例化 <specialty>#N；测试作者 ≠ 实现者，物理隔离 context；独立卡并发）
-  → 验证（machine_verifiable：command + expected exit_code，验证者只执行不判断）
-  → 双审查（裁缝代码审查 + appsec 安全审查，context 硬过滤 think，只看事实不看叙述）
-  → 退回重做循环（任一审查 reject → 注入整改要点返工，≤ max_rework 次，超限转 HITL）
-  → Guide 仲裁（双审查全 pass）→ 真 git merge 回主干
-  → 全程仅追加日志；强杀进程后 advance() 从日志无缝续作（恢复状态不恢复思维）
-```
 
-里程碑进度（路线图见 ARCHITECTURE.md 第 12 节）：
-
-| 里程碑 | 范围 | 状态 |
+| 层 | 职责 | 关键设计 |
 |---|---|---|
-| M1 | Session 日志 + WAL + Guide 分解委派 + 单 NPC 执行 + 验证三层 | ✅ 达成（含真实 DeepSeek live 验收） |
-| M2 核心 | 多 NPC + 裁缝审查（context 隔离）+ 退回重做 + 崩溃续作 + 多卡 test-first | ✅ 达成（§12 验收：强杀重启续作） |
-| M2.6 真隔离 | per-card worktree + 真 git merge（红线 #6）+ merge-then-verify + NPC 子进程隔离 | ✅ 达成（ADR-016/017，离线 67 passed） |
-| M2.5 真并行 | 多实例并发执行（独立卡）+ `max_concurrent_agents` | ✅ 达成（ADR-018，计时实证并发，70 passed） |
-| M2.7 专家委派 | 双轴角色（功能×专长）+ 向导自动匹配专家 + 双审查聚合 | ✅ 达成（ADR-019，9 专家角色库，80 passed） |
-| M3 像素小镇 View | 状态-动画协议+投影 / FastAPI 订阅 / Vite+React+Phaser 前端 / 悬停看 think / 任务板 / HITL 闪烁 / 钟楼敲钟 | ✅ 达成（ADR-020/021，Python 92 + vitest 11 passed） |
-| M4 双向交互 | 写端点(/command,/hitl)+ 服务端编排宿主 + 逐指令分解 + 消费 hitl_response + 前端指令栏/HITL 弹窗 | ✅ 达成（ADR-022，104 passed + vitest 14） |
-| M5 打磨发布 | 走路动画 / 瓦片场景 / 演示视频 / 开源 | ⬜ 未开始 |
+| **Session** | 事实源 | SQLite(WAL)**仅追加**事件日志,15 类领域事件;状态由**投影**重建,禁 UPDATE/DELETE |
+| **Harness** | 编排内核 | **纯函数、无状态**;决策先落日志后生效(write-ahead);`wake(sessionId)` 崩溃续作 |
+| **Sandbox** | 执行隔离 | 每 Agent 独立 **git worktree + 子进程**;产物只走 git merge 交换;`ThreadPoolExecutor` 并行派发 |
+| **View** | 可视化交互 | Phaser 小镇;**状态-动画投影协议** Python↔TS 双端一致性锁(parity) |
 
-关键决策与偏差均记录在 [docs/adr/](docs/adr/)。M2.6 收尾了 §1 红线 #6（Sandbox 不共享可写 FS、跨 NPC 交换只走 git merge）：ADR-016（真 git merge + per-card worktree + merge-then-verify）superseded 了 ADR-014/015 的文件系统让步，ADR-017（NPC 子进程隔离）收尾了 ADR-012 的进程隔离。
+## 🔄 一次任务的生命周期
 
-## 开发环境
+```mermaid
+sequenceDiagram
+    participant 你
+    participant 向导 as 向导(orchestrator)
+    participant 专家 as 专家(builder)
+    participant 验证 as 验证者(verifier)
+    participant 审查 as 双审查(code+appsec)
+    你->>向导: 下指令(可带文件/图)
+    向导->>向导: 分解为任务卡(目标/输出/工具白名单/边界)
+    向导->>专家: 委派(按专长匹配,可并行)
+    专家->>专家: 在隔离 worktree 写代码
+    专家->>验证: 提交产物
+    验证->>验证: 跑机器可验证条件(pass/fail)
+    验证->>审查: 通过则双重审查(制作者≠检查者)
+    审查-->>专家: 不过 → 返工 loop
+    审查->>向导: 全过 → git merge 进主干
+    向导-->>你: 卡住时敲玻璃(HITL),回应后继续
+```
 
-架构基线（ARCHITECTURE.md 第 10 节）规定 Harness 运行在 **Python 3.11.x**。所有命令一律走仓库内 `.venv` 的解释器；系统 `py` / `python`（可能是 3.13 等其他版本）仅用于创建 venv 等辅助操作，**不**用于跑 Harness 或验收。
+## 🧱 技术栈
 
-### 一次性初始化
+**后端**:Python 3.11 · FastAPI · SQLite(WAL)· litellm(可插拔 LLM)· WebSocket(catch-up + live 两阶段订阅)· git worktree · 子进程隔离
+**前端**:React 18 · TypeScript · Vite · Phaser 3
+**桌面**:Tauri 2.0(Rust)· PyInstaller(后端 sidecar)
+**工程**:契约先行(事件 / 任务卡 / 验证条件 三套 JSON-Schema)· ADR 决策记录(24+ 条)
 
+## 🚀 运行
+
+**开发模式**(两个终端):
 ```bash
-cd D:\Projects\TerraWorks
-py -3.11 -m venv .venv
-.venv\Scripts\activate
-python --version                                  # 应为 3.11.x
-python -m pip install -r harness/requirements.txt
-python -m pip install -r harness/requirements-dev.txt
+# 1) 后端(实时模式;在设置面板填 key,或把 *_API_KEY 放 .env)
+TERRA_LLM_MODE=real python -m harness.view.serve --port 8000
+# 2) 前端
+npm install && npm run dev      # 打开 http://localhost:5173
 ```
 
-### 日常使用
+**桌面打包**(产出 .msi/.exe,后端随 app 自启):见 [docs/BUILD-desktop.md](docs/BUILD-desktop.md)。
 
+**离线测试**:
 ```bash
-.venv\Scripts\activate                            # 每个新终端先激活
-python -c "import jsonschema, referencing; print('ok')"
+python -m pytest harness/tests/ -q   # Harness 端到端(mock LLM,确定性)
+npm run test                         # 前端投影 parity
 ```
 
-> 约定：文档/脚本中出现的 `python` 均指 `.venv` 内解释器（已 activate）。未激活时请用 `.venv\Scripts\python.exe` 显式指定，避免误用系统 3.13。`.venv/` 已在 `.gitignore` 中忽略，不入库。
+## 🗺 里程碑
 
-### 复现验收
+- **M1–M2** 无头 Harness:事件日志 + 分解委派 + test-first 多卡 + 多实例执行 + 验证三层 + 审查 + 返工 + 仲裁 merge + 崩溃续作
+- **M2.5–M2.7** 真并行(独立 worktree + 子进程)+ 角色感知专家委派 + 双重审查(代码 + 安全)
+- **M3** 像素小镇 View:状态-动画协议 + catch-up/live 订阅 + 悬停看 think + 任务板
+- **M4** 双向交互:写端点 + 编排宿主 + HITL,"全程不开终端完成一次开发"
+- **M5** 打磨发布:帧动画 + 瓦片场景 + 深色 UI + 实时动态流 + 多供应商热切换 + 真实仓库工作区 + 文件/预览 + **Tauri 桌面打包(后端 sidecar 自启)**
 
-- 日常开发安装：`pip install -r harness/requirements.txt`（宽松上界，允许小版本升级）
-- 复现 M1.x 验收时安装：`pip install -r harness/requirements.lock`（精确版本，与最近一次 acceptance.md 记录一致）
+## 📐 设计基线与决策
 
-## 跑测试 / 看 demo
+- 设计基线:[ARCHITECTURE.md](ARCHITECTURE.md)(冻结,偏离须先提 ADR)
+- 工程速查与红线:[PROJECT.md](PROJECT.md)
+- 决策记录:[`docs/adr/`](docs/adr/)(事件 schema、真隔离、并行派发、状态-动画投影、双向交互、沙箱隔离、目标工作区…)
+- 契约 schema:[`docs/contracts/`](docs/contracts/)
 
-测试套件即全闭环的可执行演示，端到端覆盖上述编排环路（happy path / 崩溃续作 / 退回重做 / 多卡 test-first）。
+---
 
-```bash
-# 离线全回归（纯数据/mock，无 API 调用，秒级）
-.venv\Scripts\python.exe -m pytest harness/tests -m "not live" -q
-
-# 含 live 验收（需 .env 内 DeepSeek key，真调一次 LLM，~20s/少量 token）
-.venv\Scripts\python.exe -m pytest harness/tests
-```
-
-> `live` marker 标注需真实 LLM key 的用例（见 [pytest.ini](pytest.ini)）；离线运行用 `-m "not live"` 排除。API key 仅放入 `.env`（已 gitignored），不在命令行出现。
-
-### 回放 Session 日志
-
-Session 是唯一事实源；以下 CLI 可建库、灌事件、按因果链回放，验证"日志完整可回放"：
-
-```bash
-python -m harness.session.cli --db data/session.db init
-python -m harness.session.cli --db data/session.db dump          # 按 parent_event_id 打印因果树
-python -m harness.session.cli --db data/session.db query --type review_verdict
-```
-
-## 目录
-
-```
-harness/        Python sidecar：guide/(编排) session/(日志+WAL) context/(可见性矩阵)
-                sandbox/(worktree + 执行 + 验证 + 审查) tests/
-roles/          角色定义（用户可扩展的 .md：guide/merchant/blaster/tailor）
-docs/contracts/ events / task_card / verification 三个 JSON schema（契约）
-docs/adr/       架构决策记录
-data/           session.db、worktrees（gitignored）
-```
+<div align="center">
+<sub>个人全栈项目 · 用 Claude Code 协作开发</sub>
+</div>
