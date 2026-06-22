@@ -487,7 +487,15 @@ export function App() {
   );
 }
 
-// 供应商配置面板(cc-switch 式):多配置 + 一键切换 + 增删改
+// 预设供应商(点一下自动填地址+模型,只需补 key);均走 OpenAI 兼容端点
+const PRESETS: { label: string; base_url: string; model: string }[] = [
+  { label: "DeepSeek", base_url: "https://api.deepseek.com", model: "deepseek-v4-pro" },
+  { label: "OpenAI (GPT)", base_url: "https://api.openai.com/v1", model: "gpt-5.5" },
+  { label: "Claude", base_url: "https://api.anthropic.com/v1/", model: "claude-opus-4-8" },
+  { label: "Gemini", base_url: "https://generativelanguage.googleapis.com/v1beta/openai/", model: "gemini-2.5-pro" },
+];
+
+// 供应商配置面板(cc-switch 式):预设 + 多配置 + 一键切换 + 增删改
 function SettingsModal({ base, providers, setProviders, onClose }: {
   base: string; providers: ProvidersState; setProviders: (s: ProvidersState) => void; onClose: () => void;
 }) {
@@ -552,6 +560,21 @@ function SettingsModal({ base, providers, setProviders, onClose }: {
         {/* 新增 / 编辑表单 */}
         <div style={{ ...cardCss, padding: 12, marginTop: 12 }}>
           <div style={{ fontWeight: 600, marginBottom: 8 }}>{editing ? "编辑配置" : "新增配置"}</div>
+          {/* 预设:点一下自动填地址+模型 */}
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 10 }}>
+            {PRESETS.map((p) => (
+              <button key={p.label} type="button"
+                onClick={() => setForm({ ...form, name: form.name || p.label, base_url: p.base_url, model: p.model })}
+                style={{ padding: "4px 10px", borderRadius: 999, cursor: "pointer", fontSize: 12,
+                  background: form.base_url === p.base_url ? T.accent : "transparent",
+                  color: form.base_url === p.base_url ? "#fff" : T.dim, border: `1px solid ${T.border}` }}>
+                {p.label}
+              </button>
+            ))}
+            <button type="button" onClick={() => setForm({ ...blank, api_key: form.api_key })}
+              style={{ padding: "4px 10px", borderRadius: 999, cursor: "pointer", fontSize: 12,
+                background: "transparent", color: T.dim, border: `1px dashed ${T.border}` }}>自定义</button>
+          </div>
           <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="名称(如 DeepSeek 官方)" style={fieldCss} />
           <input value={form.base_url} onChange={(e) => setForm({ ...form, base_url: e.target.value })} placeholder="API 地址 base_url(如 https://api.deepseek.com/v1)" style={fieldCss} />
           <input value={form.model} onChange={(e) => setForm({ ...form, model: e.target.value })} placeholder="模型 id(如 deepseek-v4-pro)" style={fieldCss} />
