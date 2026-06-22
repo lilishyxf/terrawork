@@ -13,6 +13,37 @@ class ParseError(Exception):
     """LLM 输出解析失败:JSON 非法、结构不符、必需字段缺失。"""
 
 
+def _extract_json_object(text: str):
+    """从含杂质的文本里提取第一个**括号平衡**的 JSON 对象(应对 ```json 围栏、推理模型
+    在 JSON 前后带说明文字)。提取不到返回 None。"""
+    start = text.find("{")
+    if start < 0:
+        return None
+    depth, in_str, esc = 0, False, False
+    for i in range(start, len(text)):
+        c = text[i]
+        if in_str:
+            if esc:
+                esc = False
+            elif c == "\\":
+                esc = True
+            elif c == '"':
+                in_str = False
+        else:
+            if c == '"':
+                in_str = True
+            elif c == "{":
+                depth += 1
+            elif c == "}":
+                depth -= 1
+                if depth == 0:
+                    try:
+                        return json.loads(text[start:i + 1])
+                    except json.JSONDecodeError:
+                        return None
+    return None
+
+
 def parse_llm_output(
     raw_json: str,
     session_id: str,
@@ -42,8 +73,11 @@ def parse_llm_output(
 
     try:
         data = json.loads(raw_json)
-    except json.JSONDecodeError as e:
-        raise ParseError(f"LLM 输出非合法 JSON: {e}") from e
+    except json.JSONDecodeError:
+        # 容错:推理模型/带 markdown 围栏时,JSON 前后可能有杂质 → 提取最外层 {...} 再试
+        data = _extract_json_object(raw_json)
+        if data is None:
+            raise ParseError(f"LLM 输出非合法 JSON(且无法提取 JSON 对象): {raw_json[:200]!r}")
 
     if not isinstance(data, dict):
         raise ParseError(f"LLM 输出顶层必须是对象,实际 {type(data).__name__}")

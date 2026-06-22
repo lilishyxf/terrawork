@@ -17,7 +17,26 @@ def _base_dir() -> Path:
     return base
 
 
+def _pick_dir_mode() -> bool:
+    """打包版子命令:`terraworks-backend.exe --pick-dir` 只弹系统文件夹对话框、打印路径、退出。
+    (frozen 下不能用 sys.executable -c 跑 python,故用本子命令代替。)"""
+    if "--pick-dir" not in sys.argv:
+        return False
+    try:
+        import tkinter as tk
+        from tkinter import filedialog
+        r = tk.Tk(); r.withdraw(); r.attributes("-topmost", True)
+        p = filedialog.askdirectory(title="选择 NPC 要干活的项目文件夹")
+        r.destroy()
+        print(p or "")
+    except Exception:
+        print("")
+    return True
+
+
 def main() -> None:
+    if _pick_dir_mode():
+        return
     base = _base_dir()
 
     # 密钥:从用户数据目录读 .env(用户放这里);默认实时模式

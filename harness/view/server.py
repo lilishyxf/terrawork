@@ -260,13 +260,19 @@ def create_app(
     def pick_workspace():
         """本机弹出系统原生文件夹对话框(后端进程,子进程跑 tkinter),选中即切换。
         浏览器拿不到服务器端路径,故由本地后端代开原生框——单机壳的正解。"""
-        code = (
-            "import tkinter as tk;from tkinter import filedialog;"
-            "r=tk.Tk();r.withdraw();r.attributes('-topmost',True);"
-            "p=filedialog.askdirectory(title='选择 NPC 要干活的项目文件夹');print(p)"
-        )
+        # 打包(frozen)时 sys.executable 是本 exe,不能 -c 跑 python;改用 --pick-dir 子命令
+        # (backend_entry 识别该 flag 只弹对话框)。开发时直接 python -c。
+        if getattr(sys, "frozen", False):
+            cmd = [sys.executable, "--pick-dir"]
+        else:
+            code = (
+                "import tkinter as tk;from tkinter import filedialog;"
+                "r=tk.Tk();r.withdraw();r.attributes('-topmost',True);"
+                "p=filedialog.askdirectory(title='选择 NPC 要干活的项目文件夹');print(p)"
+            )
+            cmd = [sys.executable, "-c", code]
         try:
-            proc = subprocess.run([sys.executable, "-c", code], capture_output=True,
+            proc = subprocess.run(cmd, capture_output=True,
                                   text=True, encoding="utf-8", errors="replace", timeout=300)
         except Exception as e:
             raise HTTPException(500, f"无法打开文件夹对话框:{e}")
@@ -327,18 +333,37 @@ def create_app(
         _providers_path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
 
     def _apply_active() -> None:
-        """把当前 active 供应商写进环境(OpenAI 兼容:model=openai/<model> + api_base + api_key),
-        供 litellm 调用读取。无 active 则清空覆盖,回落到 roles 默认 + .env。"""
+        """把当前 active 供应商写进环境。按 base_url 域名走 litellm **原生 provider**
+        (deepseek/openai/anthropic/gemini 各自正确处理推理模型,如 deepseek-v4-pro 的
+        reasoning content);未知网关才用 OpenAI 兼容(openai/<model> + api_base)。
+        无 active 则清空覆盖,回落到 roles 默认 + .env。"""
+        for k in ("TERRA_MODEL_OVERRIDE", "TERRA_API_BASE", "TERRA_API_KEY"):
+            os.environ.pop(k, None)
         data = _load_providers()
         active = next((p for p in data["providers"] if p["id"] == data.get("active")), None)
-        if active and active.get("api_key"):
-            os.environ["TERRA_LLM_MODE"] = "real"
-            os.environ["TERRA_MODEL_OVERRIDE"] = f"openai/{active['model']}"
+        if not (active and active.get("api_key")):
+            return
+        os.environ["TERRA_LLM_MODE"] = "real"
+        base = (active["base_url"] or "").lower()
+        model, key = active["model"], active["api_key"]
+        # 域名 → (litellm provider 前缀, 该 provider 的 key 环境变量)
+        native = None
+        if "deepseek.com" in base:
+            native = ("deepseek", "DEEPSEEK_API_KEY")
+        elif "openai.com" in base:
+            native = ("openai", "OPENAI_API_KEY")
+        elif "anthropic.com" in base:
+            native = ("anthropic", "ANTHROPIC_API_KEY")
+        elif "googleapis.com" in base or "generativelanguage" in base:
+            native = ("gemini", "GEMINI_API_KEY")
+        if native:
+            prefix, key_env = native
+            os.environ["TERRA_MODEL_OVERRIDE"] = f"{prefix}/{model}"
+            os.environ[key_env] = key                 # litellm 原生 provider 读它,不传 api_base
+        else:                                          # 未知网关:OpenAI 兼容
+            os.environ["TERRA_MODEL_OVERRIDE"] = f"openai/{model}"
             os.environ["TERRA_API_BASE"] = active["base_url"]
-            os.environ["TERRA_API_KEY"] = active["api_key"]
-        else:
-            for k in ("TERRA_MODEL_OVERRIDE", "TERRA_API_BASE", "TERRA_API_KEY"):
-                os.environ.pop(k, None)
+            os.environ["TERRA_API_KEY"] = key
 
     def _public_providers() -> dict:
         """返回给前端(隐去完整 key,只给掩码)。"""
