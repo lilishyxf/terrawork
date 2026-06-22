@@ -10,6 +10,13 @@ import os
 import sys
 from pathlib import Path
 
+# 打包(frozen)时把 tiktoken 词表指向内置缓存,避免运行时联网下载 + 缺插件报
+# "Unknown encoding cl100k_base"(litellm 加载即崩)。须在 import litellm 前设好。
+if getattr(sys, "frozen", False):
+    _cache = Path(sys._MEIPASS) / "tiktoken_cache"  # type: ignore[attr-defined]
+    if _cache.is_dir():
+        os.environ.setdefault("TIKTOKEN_CACHE_DIR", str(_cache))
+
 
 def _base_dir() -> Path:
     base = Path(os.environ.get("LOCALAPPDATA") or Path.home()) / "TerraWorks"
