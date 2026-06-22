@@ -51,3 +51,6 @@ src-tauri/binaries/
 build/pyi-dist/
 build/pyi-work/
 build/*.spec
+
+# 供应商配置(含 API key,勿入库)
+data/providers.json

@@ -12,12 +12,14 @@ advance-runner:每 session 单飞(threading + dirty 标志)——运行中到达
 触发再跑一轮(不漏),同 session 绝不并发(不抢 worktree)。Live 用轮询 SQLite(对子进程写鲁棒)。
 """
 import asyncio
+import json
 import os
 import subprocess
 import sys
 import threading
 import time
 import traceback
+import uuid
 from pathlib import Path
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
@@ -58,6 +60,18 @@ class _HitlBody(BaseModel):
 
 class _WorkspaceBody(BaseModel):
     path: str               # 目标项目仓库的绝对路径
+
+
+class _ProviderBody(BaseModel):
+    id: str | None = None       # 缺省=新增
+    name: str
+    base_url: str               # OpenAI 兼容端点(如 https://api.deepseek.com/v1)
+    model: str                  # 模型 id(如 deepseek-v4-pro)
+    api_key: str | None = None  # 编辑时留空=保留原 key
+
+
+class _ActiveBody(BaseModel):
+    id: str
 
 
 def create_app(
@@ -169,8 +183,7 @@ def create_app(
     def post_command(sid: str, body: _CommandBody):
         if not body.text.strip():
             raise HTTPException(400, "text 不能为空")
-        # 模型选择(全局覆盖):设/清 TERRA_MODEL_OVERRIDE,advance 各 LLM 调用读它
-        os.environ["TERRA_MODEL_OVERRIDE"] = (body.model or "").strip()
+        _apply_active()   # 确保 LLM 走当前 active 供应商(跨重启亦生效)
         payload = {"text": body.text}
         if body.attachments:
             payload["attachments"] = [{"name": a.name, "content": a.content} for a in body.attachments]
@@ -297,5 +310,94 @@ def create_app(
         if not str(target).startswith(str(root)) or not target.is_file():
             raise HTTPException(404, "not found")
         return FileResponse(str(target))
+
+    # ---- 供应商配置(cc-switch 式:多配置 + 一键切换)----
+    _providers_path = db_path.parent / "providers.json"
+
+    def _load_providers() -> dict:
+        if _providers_path.exists():
+            try:
+                return json.loads(_providers_path.read_text(encoding="utf-8"))
+            except Exception:
+                pass
+        return {"active": None, "providers": []}
+
+    def _save_providers(data: dict) -> None:
+        _providers_path.parent.mkdir(parents=True, exist_ok=True)
+        _providers_path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    def _apply_active() -> None:
+        """把当前 active 供应商写进环境(OpenAI 兼容:model=openai/<model> + api_base + api_key),
+        供 litellm 调用读取。无 active 则清空覆盖,回落到 roles 默认 + .env。"""
+        data = _load_providers()
+        active = next((p for p in data["providers"] if p["id"] == data.get("active")), None)
+        if active and active.get("api_key"):
+            os.environ["TERRA_LLM_MODE"] = "real"
+            os.environ["TERRA_MODEL_OVERRIDE"] = f"openai/{active['model']}"
+            os.environ["TERRA_API_BASE"] = active["base_url"]
+            os.environ["TERRA_API_KEY"] = active["api_key"]
+        else:
+            for k in ("TERRA_MODEL_OVERRIDE", "TERRA_API_BASE", "TERRA_API_KEY"):
+                os.environ.pop(k, None)
+
+    def _public_providers() -> dict:
+        """返回给前端(隐去完整 key,只给掩码)。"""
+        data = _load_providers()
+        return {
+            "active": data.get("active"),
+            "providers": [
+                {"id": p["id"], "name": p["name"], "base_url": p["base_url"],
+                 "model": p["model"], "key_masked": ("••••" + p["api_key"][-4:]) if p.get("api_key") else ""}
+                for p in data["providers"]
+            ],
+        }
+
+    _apply_active()  # 启动即应用已存的 active
+
+    @app.get("/providers")
+    def get_providers():
+        return _public_providers()
+
+    @app.post("/providers")
+    def upsert_provider(body: _ProviderBody):
+        data = _load_providers()
+        if body.id:  # 更新
+            p = next((x for x in data["providers"] if x["id"] == body.id), None)
+            if not p:
+                raise HTTPException(404, "供应商不存在")
+            p["name"], p["base_url"], p["model"] = body.name, body.base_url, body.model
+            if body.api_key:           # 留空=保留原 key
+                p["api_key"] = body.api_key
+        else:        # 新增
+            if not body.api_key:
+                raise HTTPException(400, "新增需填 api_key")
+            new = {"id": uuid.uuid4().hex[:8], "name": body.name, "base_url": body.base_url,
+                   "model": body.model, "api_key": body.api_key}
+            data["providers"].append(new)
+            if not data.get("active"):
+                data["active"] = new["id"]
+        _save_providers(data)
+        _apply_active()
+        return _public_providers()
+
+    @app.delete("/providers/{pid}")
+    def delete_provider(pid: str):
+        data = _load_providers()
+        data["providers"] = [p for p in data["providers"] if p["id"] != pid]
+        if data.get("active") == pid:
+            data["active"] = data["providers"][0]["id"] if data["providers"] else None
+        _save_providers(data)
+        _apply_active()
+        return _public_providers()
+
+    @app.post("/providers/active")
+    def set_active_provider(body: _ActiveBody):
+        data = _load_providers()
+        if body.id not in [p["id"] for p in data["providers"]]:
+            raise HTTPException(404, "供应商不存在")
+        data["active"] = body.id
+        _save_providers(data)
+        _apply_active()
+        return _public_providers()
 
     return app

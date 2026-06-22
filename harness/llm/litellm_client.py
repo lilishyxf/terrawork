@@ -5,6 +5,7 @@
 网络韧性:对瞬时错误(网络抖断、不完整响应、5xx、超时)做指数退避重试。
 不稳定网络(如手机热点)下,单次调用的短暂中断由此自愈,不再炸穿整条 advance。
 """
+import os
 import time
 
 import litellm
@@ -12,6 +13,18 @@ import litellm
 _MAX_TRIES = 4          # 总尝试次数(1 次 + 3 次重试)
 _BACKOFF = 2.0          # 退避基数(秒):2, 4, 6 ...
 _TIMEOUT = 120          # 单次调用超时(秒),避免网络挂死时无限等待
+
+
+def _provider_kwargs() -> dict:
+    """active 供应商(cc-switch 式)→ 自定义 OpenAI 兼容端点的 api_base/api_key。"""
+    kw = {}
+    base = os.environ.get("TERRA_API_BASE", "").strip()
+    key = os.environ.get("TERRA_API_KEY", "").strip()
+    if base:
+        kw["api_base"] = base
+    if key:
+        kw["api_key"] = key
+    return kw
 
 
 def _with_retry(call):
@@ -30,6 +43,7 @@ def _with_retry(call):
 def complete(model: str, messages: list[dict], **kwargs) -> str:
     """同步调 LiteLLM,返回 JSON 字符串(由 response_format 约束)。瞬时错误自动重试。"""
     kwargs.setdefault("timeout", _TIMEOUT)
+    kwargs.update(_provider_kwargs())
     response = _with_retry(lambda: litellm.completion(
         model=model,
         messages=messages,
@@ -51,6 +65,7 @@ def complete_with_tools(model: str, messages: list[dict], tools: list[dict], **k
     - re-calling with updated messages until message.tool_calls is empty/None
     """
     kwargs.setdefault("timeout", _TIMEOUT)
+    kwargs.update(_provider_kwargs())
     response = _with_retry(lambda: litellm.completion(
         model=model,
         messages=messages,

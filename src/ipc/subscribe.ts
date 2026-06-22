@@ -109,6 +109,37 @@ export async function pickWorkspace(baseUrl: string): Promise<{ path: string; ca
   return await r.json();
 }
 
+// ── 供应商配置(cc-switch 式)────────────────────────────────
+export interface Provider { id: string; name: string; base_url: string; model: string; key_masked: string }
+export interface ProvidersState { active: string | null; providers: Provider[] }
+
+export async function getProviders(baseUrl: string): Promise<ProvidersState> {
+  const r = await fetch(`${baseUrl}/providers`);
+  if (!r.ok) throw new Error(`providers failed: HTTP ${r.status}`);
+  return await r.json();
+}
+export async function upsertProvider(baseUrl: string, p: {
+  id?: string; name: string; base_url: string; model: string; api_key?: string;
+}): Promise<ProvidersState> {
+  const r = await fetch(`${baseUrl}/providers`, {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(p),
+  });
+  if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || `HTTP ${r.status}`);
+  return await r.json();
+}
+export async function deleteProvider(baseUrl: string, id: string): Promise<ProvidersState> {
+  const r = await fetch(`${baseUrl}/providers/${id}`, { method: "DELETE" });
+  if (!r.ok) throw new Error(`delete failed: HTTP ${r.status}`);
+  return await r.json();
+}
+export async function setActiveProvider(baseUrl: string, id: string): Promise<ProvidersState> {
+  const r = await fetch(`${baseUrl}/providers/active`, {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id }),
+  });
+  if (!r.ok) throw new Error(`active failed: HTTP ${r.status}`);
+  return await r.json();
+}
+
 /** WebSocket 两阶段订阅:补发积压(phase:catchup)→ caught_up → 实时(phase:live)。 */
 export function subscribe(
   baseUrl: string,

@@ -1,30 +1,14 @@
 // M3-5 完整 View:订阅事件 → 投影 → Phaser 小镇 + 悬停看 think + 任务板侧栏。
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
-import { subscribe, postCommand, postHitl, fetchWorkspaceTree, fetchWorkspaceFile, getWorkspace, pickWorkspace, type TerraEvent, type Phase } from "./ipc/subscribe";
+import { subscribe, postCommand, postHitl, fetchWorkspaceTree, fetchWorkspaceFile, getWorkspace, pickWorkspace,
+  getProviders, upsertProvider, deleteProvider, setActiveProvider, type ProvidersState,
+  type TerraEvent, type Phase } from "./ipc/subscribe";
 import { project, agentName, type ViewSnapshot, type NpcSnapshot, type TaskStatus } from "./game/protocol/projection";
 import { createTown, type TownScene } from "./game/town";
 import type Phaser from "phaser";
 
 const DEFAULT_BASE = "http://127.0.0.1:8000";
 
-// 模型选择(全局覆盖所有 NPC)。空值=各角色用 roles/*.md 默认。按提供商分组。
-// 均支持 function-calling(builder 要工具调用);需对应 .env 里的 key。型号核于 2026-06。
-const MODEL_GROUPS: { provider: string; items: { label: string; value: string }[] }[] = [
-  { provider: "DeepSeek", items: [
-    { label: "V4 Pro", value: "deepseek/deepseek-v4-pro" },
-    { label: "V4 Flash", value: "deepseek/deepseek-v4-flash" },
-  ]},
-  { provider: "OpenAI", items: [
-    { label: "GPT-5.5", value: "openai/gpt-5.5" },
-    { label: "GPT-5.5 Pro", value: "openai/gpt-5.5-pro" },
-    { label: "GPT-5.4 mini", value: "openai/gpt-5.4-mini" },
-  ]},
-  { provider: "Anthropic", items: [
-    { label: "Claude Opus 4.8", value: "anthropic/claude-opus-4-8" },
-    { label: "Claude Sonnet 4.6", value: "anthropic/claude-sonnet-4-6" },
-    { label: "Claude Haiku 4.5", value: "anthropic/claude-haiku-4-5" },
-  ]},
-];
 
 // 深色主题调色板(图二风格)
 const T = {
@@ -135,7 +119,8 @@ export function App() {
   const [snap, setSnap] = useState<ViewSnapshot>(() => project([]));
   const [hover, setHover] = useState<{ id: string; x: number; y: number } | null>(null);
   const [cmd, setCmd] = useState("");           // 指令输入框
-  const [model, setModel] = useState(() => localStorage.getItem("terra_model") ?? "");  // 模型(全局覆盖,空=角色默认),记住到本地
+  const [showSettings, setShowSettings] = useState(false);                 // 供应商设置面板
+  const [providers, setProviders] = useState<ProvidersState>({ active: null, providers: [] });
   const [busy, setBusy] = useState(false);      // 写请求进行中
   // 未回应的 HITL 卡口(at_glass 闪烁时弹回应框)
   const [openHitl, setOpenHitl] = useState<{ event_id: number; question: string; task_id?: string } | null>(null);
@@ -172,6 +157,7 @@ export function App() {
       queueMicrotask(() => sceneRef.current?.applySnapshot(project([])));
     }
     connect();   // 打开即自动连接(无需手动点"连接")
+    loadProviders();
     return () => {
       genRef.current++;   // 让当前连接的 onClose 失效,卸载/重挂不触发重连
       if (reconnectRef.current) { clearTimeout(reconnectRef.current); reconnectRef.current = null; }
@@ -204,7 +190,7 @@ export function App() {
     const text = cmd.trim();
     if (!text || busy) return;
     setBusy(true);
-    try { await postCommand(base, session, text, model, attachments); setCmd(""); setAttachments([]); }
+    try { await postCommand(base, session, text, undefined, attachments); setCmd(""); setAttachments([]); }
     catch (err) { alert("发送失败:" + err); }
     finally { setBusy(false); }
   }
@@ -273,6 +259,9 @@ export function App() {
       setWorkspaceState(r.path);
       setCurFile(null); setFileText(""); loadTree(); setPreviewNonce((n) => n + 1);
     } catch (e) { alert("切换工作区失败:" + e); }
+  }
+  async function loadProviders() {
+    try { setProviders(await getProviders(base)); } catch { /* 后端未起时忽略 */ }
   }
   async function addFiles(list: FileList | null) {
     if (!list) return;
@@ -358,17 +347,11 @@ export function App() {
                onKeyDown={(e) => { if (e.key === "Enter") sendCommand(); }}
                placeholder="跟向导下个任务…(回车发送)"
                style={{ ...inputCss, flex: 1, borderRadius: 999, padding: "10px 18px" }} disabled={busy} />
-        <select value={model} disabled={busy}
-                onChange={(e) => { setModel(e.target.value); localStorage.setItem("terra_model", e.target.value); }}
-                title="选择模型(全局覆盖所有 NPC);留空=各角色默认"
-                style={{ ...inputCss, borderRadius: 999, cursor: "pointer", width: 220 }}>
-          <option value="">按角色默认</option>
-          {MODEL_GROUPS.map((g) => (
-            <optgroup key={g.provider} label={g.provider}>
-              {g.items.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
-            </optgroup>
-          ))}
-        </select>
+        <button onClick={() => { setShowSettings(true); loadProviders(); }} disabled={busy}
+                title="模型/供应商设置(API key)"
+                style={{ ...inputCss, borderRadius: 999, cursor: "pointer", maxWidth: 220, overflow: "hidden", whiteSpace: "nowrap", textOverflow: "ellipsis" }}>
+          ⚙️ {(() => { const a = providers.providers.find((p) => p.id === providers.active); return a ? a.name : "设置模型"; })()}
+        </button>
         <button onClick={sendCommand} disabled={busy || !cmd.trim()}
                 style={{ ...btnCss, borderRadius: 999, opacity: busy || !cmd.trim() ? 0.5 : 1 }}>{busy ? "…" : "下指令"}</button>
       </div>
@@ -495,6 +478,94 @@ export function App() {
         <span style={{ color: "#16a085" }}>●审查</span>{" "}
         <span style={{ color: "#e74c3c" }}>●需要你</span>。
       </p>
+
+      {showSettings && (
+        <SettingsModal base={base} providers={providers} setProviders={setProviders}
+                       onClose={() => setShowSettings(false)} />
+      )}
+    </div>
+  );
+}
+
+// 供应商配置面板(cc-switch 式):多配置 + 一键切换 + 增删改
+function SettingsModal({ base, providers, setProviders, onClose }: {
+  base: string; providers: ProvidersState; setProviders: (s: ProvidersState) => void; onClose: () => void;
+}) {
+  const blank = { id: "", name: "", base_url: "", model: "", api_key: "" };
+  const [form, setForm] = useState(blank);
+  const [busy, setBusy] = useState(false);
+  const editing = !!form.id;
+
+  async function save() {
+    if (!form.name.trim() || !form.base_url.trim() || !form.model.trim()) { alert("名称/地址/模型必填"); return; }
+    setBusy(true);
+    try {
+      const next = await upsertProvider(base, {
+        id: form.id || undefined, name: form.name, base_url: form.base_url,
+        model: form.model, api_key: form.api_key || undefined,
+      });
+      setProviders(next); setForm(blank);
+    } catch (e) { alert("保存失败:" + e); } finally { setBusy(false); }
+  }
+  async function activate(id: string) { try { setProviders(await setActiveProvider(base, id)); } catch (e) { alert(e); } }
+  async function remove(id: string) {
+    if (!confirm("删除这个供应商配置?")) return;
+    try { setProviders(await deleteProvider(base, id)); } catch (e) { alert(e); }
+  }
+
+  const fieldCss: CSSProperties = { ...inputCss, width: "100%", marginBottom: 8, boxSizing: "border-box" };
+  return (
+    <div onClick={onClose} style={{
+      position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", zIndex: 200,
+      display: "flex", alignItems: "center", justifyContent: "center",
+    }}>
+      <div onClick={(e) => e.stopPropagation()} style={{
+        ...cardCss, width: 560, maxHeight: "86vh", overflow: "auto", padding: 18, color: T.text,
+      }}>
+        <div style={{ display: "flex", alignItems: "center", marginBottom: 12 }}>
+          <h3 style={{ margin: 0 }}>模型 / 供应商</h3>
+          <span style={{ flex: 1 }} />
+          <button onClick={onClose} style={{ background: "transparent", color: T.dim, border: "none", fontSize: 18, cursor: "pointer" }}>✕</button>
+        </div>
+
+        {/* 已有配置列表 */}
+        {providers.providers.length === 0 && <p style={{ color: T.faint }}>还没有配置,在下面新增一个。</p>}
+        {providers.providers.map((p) => (
+          <div key={p.id} style={{
+            ...cardCss, padding: 10, marginBottom: 8, display: "flex", alignItems: "center", gap: 10,
+            borderColor: p.id === providers.active ? T.accent : T.border,
+          }}>
+            <input type="radio" checked={p.id === providers.active} onChange={() => activate(p.id)} title="设为当前" />
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontWeight: 600 }}>{p.name} {p.id === providers.active && <span style={{ color: "#3ddc84", fontSize: 12 }}>● 当前</span>}</div>
+              <div style={{ fontSize: 12, color: T.dim, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                {p.model} · {p.base_url} · {p.key_masked}
+              </div>
+            </div>
+            <button onClick={() => setForm({ id: p.id, name: p.name, base_url: p.base_url, model: p.model, api_key: "" })}
+              style={{ background: "transparent", color: T.dim, border: `1px solid ${T.border}`, borderRadius: 6, padding: "3px 8px", cursor: "pointer" }}>编辑</button>
+            <button onClick={() => remove(p.id)}
+              style={{ background: "transparent", color: "#ff8a80", border: "1px solid #e0524a", borderRadius: 6, padding: "3px 8px", cursor: "pointer" }}>删</button>
+          </div>
+        ))}
+
+        {/* 新增 / 编辑表单 */}
+        <div style={{ ...cardCss, padding: 12, marginTop: 12 }}>
+          <div style={{ fontWeight: 600, marginBottom: 8 }}>{editing ? "编辑配置" : "新增配置"}</div>
+          <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="名称(如 DeepSeek 官方)" style={fieldCss} />
+          <input value={form.base_url} onChange={(e) => setForm({ ...form, base_url: e.target.value })} placeholder="API 地址 base_url(如 https://api.deepseek.com/v1)" style={fieldCss} />
+          <input value={form.model} onChange={(e) => setForm({ ...form, model: e.target.value })} placeholder="模型 id(如 deepseek-v4-pro)" style={fieldCss} />
+          <input value={form.api_key} onChange={(e) => setForm({ ...form, api_key: e.target.value })} type="password"
+            placeholder={editing ? "API key(留空=不改)" : "API key"} style={fieldCss} />
+          <div style={{ display: "flex", gap: 8 }}>
+            <button onClick={save} disabled={busy} style={btnCss}>{busy ? "…" : editing ? "保存修改" : "添加"}</button>
+            {editing && <button onClick={() => setForm(blank)} style={{ ...btnCss, background: "transparent", color: T.dim, border: `1px solid ${T.border}` }}>取消编辑</button>}
+          </div>
+        </div>
+        <p style={{ fontSize: 12, color: T.faint, marginTop: 10 }}>
+          选中即全局生效(向导+所有 NPC 用它)。任意 OpenAI 兼容端点(DeepSeek / 各类网关 / OpenAI)。key 本地存,不外传。
+        </p>
+      </div>
     </div>
   );
 }
